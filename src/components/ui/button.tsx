@@ -9,6 +9,10 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        hero: "bg-primary text-primary-foreground shadow-[var(--shadow-button)] hover:bg-primary/90 hover:-translate-y-0.5",
+        glass: "border border-foreground/30 bg-foreground/5 text-foreground hover:bg-foreground/15",
+        whatsapp:
+          "bg-whatsapp text-whatsapp-foreground hover:bg-whatsapp/90 shadow-[var(--shadow-button)]",
         default: "bg-primary text-primary-foreground shadow hover:bg-primary/90",
         destructive: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
         outline:

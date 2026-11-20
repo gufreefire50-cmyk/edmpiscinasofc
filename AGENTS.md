@@ -28,3 +28,9 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Application rules
+- Keep this institutional site as a single-page experience with section anchors; navigation scrolls to the corresponding content.
+- Store app media as CDN asset pointers; original uploaded artwork must not be redrawn or passed off as generated product photography.
+- Quote requests are browser-only WhatsApp deep links with validated form input; no database is needed for this flow.
+- Keep commercial facts and WhatsApp message construction in a shared browser-safe module with concrete rule tests.
