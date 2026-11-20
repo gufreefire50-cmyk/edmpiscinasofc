@@ -511,6 +511,7 @@ function Index() {
               title="TUDO PARA SUA PISCINA EM UM SÓ LUGAR."
               text="Produtos, equipamentos e orientação técnica para cuidar da sua piscina."
             />
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-white/10 bg-white/5 p-5"><div><strong className="block text-sm">Catálogo da loja</strong><span className="mt-1 block text-xs text-slate-400">Consulte produtos, monte seu carrinho e solicite para retirar na loja.</span></div><a href="/catalogo" className="inline-flex items-center gap-2 rounded-md bg-sky-500 px-5 py-3 text-xs font-extrabold uppercase tracking-wide text-white transition hover:bg-sky-400">Acessar catálogo <span aria-hidden="true">↗</span></a></div>
             <div className="categories" aria-label="Categorias de produtos">
               {categories.map((item) => (
                 <Button
