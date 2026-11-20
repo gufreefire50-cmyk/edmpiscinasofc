@@ -1,4 +1,6 @@
 # EDM Piscinas
+- [x] Remover fundo escuro da logo sem redesenhar e aplicar marca-d’água discreta.
+- [x] Revisar todas as ampliações, categorias e reprodução de vídeo em celular e desktop.
 - [x] Criar identidade premium e todas as seções institucionais.
 - [x] Gerar foto principal e fotografias individuais de serviços.
 - [x] Integrar imagens e vídeo enviados, galeria e orçamento por WhatsApp.

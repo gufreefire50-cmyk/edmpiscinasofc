@@ -33,7 +33,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { business, quoteUrl, whatsappUrl, mapsUrl } from "@/lib/edm";
 import hero from "@/assets/piscina-noturna.asset.json";
 import professional from "@/assets/profissional.asset.json";
-import logo from "@/assets/logo-edm.asset.json";
+import logo from "@/assets/logo-edm-completa.asset.json";
 import original from "@/assets/piscina-original.asset.json";
 import video from "@/assets/piscina-video.asset.json";
 import videoCover from "@/assets/video-capa.asset.json";
@@ -393,7 +393,8 @@ function Index() {
             </span>
           </div>
         </section>
-        <section id="sobre" className="section">
+        <section id="sobre" className="section branded-section">
+          <img className="watermark" src={logo.url} alt="" aria-hidden="true" />
           <div className="wrap about">
             <div>
               <p className="eyebrow">A essência da EDM</p>

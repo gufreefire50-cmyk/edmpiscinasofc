@@ -120,11 +120,9 @@ button {
   flex-shrink: 0;
 }
 .logo-crop img {
-  position: absolute;
-  width: 203px;
-  max-width: none;
-  left: -30px;
-  top: -71px;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .desktop-nav {
   display: flex;
@@ -649,12 +647,14 @@ button {
   margin: 0;
 }
 .watermark {
-  position: absolute;
-  right: 2%;
-  bottom: 18px;
+  display: block;
+  margin: 40px 2% 0 auto;
   opacity: 0.06;
   width: 220px;
   pointer-events: none;
+}
+.branded-section > .watermark {
+  margin: 0 4% 30px auto;
 }
 .reviews {
   display: grid;
@@ -985,9 +985,7 @@ button {
     height: 57px;
   }
   .logo-crop img {
-    width: 180px;
-    left: -27px;
-    top: -63px;
+    width: 100%;
   }
   .mobile-nav {
     display: flex;
