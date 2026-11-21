@@ -104,7 +104,7 @@ function AdminPage() {
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       const current = session?.user;
-      if (isEdmAdminEmail(current?.email)) {
+      if (current && isEdmAdminEmail(current.email)) {
         setUserEmail(current.email);
       } else {
         setUserEmail("");
@@ -160,11 +160,12 @@ function AdminPage() {
       return;
     }
     setPassword("");
-    if (isEdmAdminEmail(data.session?.user.email)) {
-      setUserEmail(data.session.user.email);
+    const createdEmail = data.session?.user.email;
+    if (createdEmail && isEdmAdminEmail(createdEmail)) {
+      setUserEmail(createdEmail);
       setAuthMessage("Primeiro acesso criado e autenticado.");
     } else {
-      setAuthMessage("Cadastro enviado. Abra o e-mail da EDM Piscinas, confirme o endereço e depois entre no painel.");
+      setAuthMessage("Cadastro enviado para " + email.trim().toLowerCase() + ". Abra a caixa de entrada desse endereço, confirme o e-mail e depois entre no painel.");
       setLoginMode("login");
     }
   }
