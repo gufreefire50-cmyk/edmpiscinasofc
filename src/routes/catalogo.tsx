@@ -1,12 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Minus, Plus, Search, ShoppingBag, Store, Trash2 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 type Product = { id:string; name:string; description:string; category:string; price:number; promoPrice:number|null; promo_price:number|null; stock:number; sku:string; active:boolean; image:string; image_url:string|null };
-const STORAGE_KEY="edm-piscinas-local-v1";
 type CartItem = { product: Product; quantity: number };
-const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/$/, "");
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 const phone = "5511961350125";
 const brl = (v:number) => v.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
 
@@ -23,20 +21,24 @@ function CatalogPage() {
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState("");
   useEffect(()=>{
-    const readProducts=()=>{
-      try {
-        const raw=localStorage.getItem(STORAGE_KEY);
-        const saved=raw?JSON.parse(raw):{products:[]};
-        setProducts((saved.products||[]).filter((p:Product)=>p.active!==false).map((p:Product)=>({...p,description:p.description||"",promo_price:p.promoPrice??null,image_url:p.image||null})));
+    let active=true;
+    async function loadProducts(){
+      setLoading(true);
+      const {data,error}=await supabase.from("products")
+        .select("id,name,description,price,promo_price,stock,sku,active,image_url,categories(name)")
+        .eq("active",true)
+        .order("created_at",{ascending:false});
+      if(!active)return;
+      if(error){setError("Não foi possível carregar o catálogo. Tente novamente em instantes.");setProducts([]);}
+      else {
+        const mapped=(data||[]).map((p:any)=>({...p,category:p.categories?.name||"Geral",promoPrice:p.promo_price,image:p.image_url||""}));
+        setProducts(mapped as Product[]);
         setError("");
-      } catch { setError("Não foi possível ler os produtos cadastrados."); }
+      }
       setLoading(false);
-    };
-    readProducts();
-    const onStorage=(event:StorageEvent)=>{if(event.key===STORAGE_KEY)readProducts();};
-    window.addEventListener("storage",onStorage);
-    window.addEventListener("edm-products-updated",readProducts);
-    return ()=>{window.removeEventListener("storage",onStorage);window.removeEventListener("edm-products-updated",readProducts);};
+    }
+    void loadProducts();
+    return ()=>{active=false;};
   },[]);
   const categories=useMemo(()=>["Todas",...Array.from(new Set(products.map(p=>p.category))).sort()],[products]);
   const visible=products.filter(p=>(category==="Todas"||p.category===category)&&(`${p.name} ${p.description||""}`).toLowerCase().includes(query.toLowerCase()));
@@ -47,6 +49,13 @@ function CatalogPage() {
     if(!name.trim()||customerPhone.replace(/\D/g,"").length<10||!cart.length)return;
     const lines=cart.map(i=>`• ${i.quantity}x ${i.product.name} - ${brl((i.product.promo_price||i.product.price)*i.quantity)}`).join("\n");
     const message=`Olá! Quero fazer um pedido para RETIRADA NA LOJA EDM Piscinas.\n\nNome: ${name}\nWhatsApp: ${customerPhone}\n\n${lines}\n\nTotal: ${brl(total)}\nObservações: ${notes||"Nenhuma"}\n\nConfirmar disponibilidade e retirada, por favor.`;
+    void supabase.from("website_orders").insert({
+      customer_name:name.trim(),
+      whatsapp:customerPhone.trim(),
+      items:cart.map(i=>({product_id:i.product.id,name:i.product.name,quantity:i.quantity,price:(i.product.promo_price||i.product.price)})),
+      total,
+      notes:notes.trim() + (notes.trim() ? " | " : "") + "Pedido para retirada na loja."
+    }).then(({error})=>{if(error)console.error("Falha ao registrar pedido no banco:",error.message);});
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank","noopener,noreferrer");
   }
   return <main className="min-h-screen bg-[#071426] text-white"><header className="border-b border-white/10 bg-[#0b1b30]"><div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5"><a href="/" className="flex items-center gap-2 text-sm text-slate-300 hover:text-white"><ArrowLeft size={18}/> Voltar ao site</a><strong className="tracking-wide">EDM <span className="text-sky-300">PISCINAS</span></strong><a href="/admin" className="text-xs text-slate-500 hover:text-white">Área administrativa</a></div></header>
