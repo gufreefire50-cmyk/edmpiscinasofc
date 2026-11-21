@@ -90,29 +90,19 @@ function AdminPage() {
   };
 
   useEffect(() => {
-    let active = true;
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (!active) return;
-      const current = data.session?.user;
-      if (error || !current || !isEdmAdminEmail(current.email)) {
-        if (current) void supabase.auth.signOut();
-        setUserEmail("");
-      } else {
-        setUserEmail(current.email);
-      }
-      setAuthLoading(false);
-    });
+    // Use the auth listener as the single source of truth.
+    // Running getSession() in parallel can race with SIGNED_IN and clear
+    // the just-authenticated user. Never call signOut() from this callback.
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       const current = session?.user;
       if (current && isEdmAdminEmail(current.email)) {
         setUserEmail(current.email);
       } else {
         setUserEmail("");
-        if (current) void supabase.auth.signOut();
       }
+      setAuthLoading(false);
     });
     return () => {
-      active = false;
       listener.subscription.unsubscribe();
     };
   }, []);
@@ -126,13 +116,20 @@ function AdminPage() {
       return;
     }
     setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: email.trim().toLowerCase(),
       password
     });
     setBusy(false);
-    if (error) setAuthError("Não foi possível entrar. Confira a senha e confirme o e-mail, caso solicitado.");
-    else setPassword("");
+    if (error) {
+      setAuthError("Não foi possível entrar. Confira a senha e confirme o e-mail, caso solicitado.");
+    } else if (data.user && isEdmAdminEmail(data.user.email)) {
+      setUserEmail(data.user.email || "");
+      setPassword("");
+    } else {
+      await supabase.auth.signOut();
+      setAuthError("Esse usuário não está autorizado a acessar o painel.");
+    }
   }
 
   async function handleSignup(event: FormEvent) {
