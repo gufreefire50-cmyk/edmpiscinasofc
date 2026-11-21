@@ -24,6 +24,17 @@ type Balance = {
   balance: number; due_date: string | null; promised_payment_date: string | null;
   payment_status: string;
 };
+type Customer = {
+  id: string; name: string; whatsapp: string; cpf: string | null;
+  address: string | null; notes: string; created_at: string;
+};
+type Sale = {
+  id: string; sale_number: number; customer_id: string | null; status: string;
+  sale_date: string; total: number; payment_method: string | null;
+  promised_payment_date: string | null; notes: string;
+  customers?: { name?: string } | null;
+  sale_items?: Array<{ product_name: string; quantity: number; unit_price: number }>;
+};
 const money = (value: number) =>
   Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const date = (value: string) => new Date(value).toLocaleDateString("pt-BR");
@@ -48,8 +59,14 @@ function AdminPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [orders, setOrders] = useState<WebsiteOrder[]>([]);
   const [balances, setBalances] = useState<Balance[]>([]);
-  const [salesCount, setSalesCount] = useState(0);
-  const [customersCount, setCustomersCount] = useState(0);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [showCustomerForm, setShowCustomerForm] = useState(false);
+  const [showSaleForm, setShowSaleForm] = useState(false);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [customerDraft, setCustomerDraft] = useState({ name: "", whatsapp: "", cpf: "", address: "", notes: "" });
+  const [saleDraft, setSaleDraft] = useState({ customerId: "", productId: "", quantity: "1", saleDate: new Date().toISOString().slice(0,10), dueDate: "", promisedDate: "", method: "Dinheiro", initialReceived: "0", notes: "" });
+  const [paymentDraft, setPaymentDraft] = useState({ balanceId: "", amount: "", paidDate: new Date().toISOString().slice(0,10), method: "Pix", notes: "" });
   const [loadingData, setLoadingData] = useState(false);
   const [notice, setNotice] = useState("");
   const [search, setSearch] = useState("");
@@ -160,8 +177,8 @@ function AdminPage() {
         supabase.from("categories").select("id,name,slug").order("position").order("name"),
         supabase.from("website_orders").select("*").order("created_at", { ascending: false }).limit(100),
         supabase.from("receivable_balances").select("*").order("due_date"),
-        supabase.from("sales").select("id", { count: "exact", head: true }),
-        supabase.from("customers").select("id", { count: "exact", head: true })
+        supabase.from("sales").select("id,sale_number,customer_id,status,sale_date,total,payment_method,promised_payment_date,notes,customers(name),sale_items(product_name,quantity,unit_price)").order("sale_date", { ascending: false }),
+        supabase.from("customers").select("*").order("created_at", { ascending: false })
       ]);
     const failed = [productResult.error, categoryResult.error, orderResult.error, balanceResult.error, salesResult.error, customerResult.error].find(Boolean);
     if (failed) notify("Erro ao carregar alguns dados: " + failed.message);
@@ -169,8 +186,8 @@ function AdminPage() {
     setCategories((categoryResult.data || []) as Category[]);
     setOrders((orderResult.data || []) as WebsiteOrder[]);
     setBalances((balanceResult.data || []) as Balance[]);
-    setSalesCount(salesResult.count || 0);
-    setCustomersCount(customerResult.count || 0);
+    setSales((salesResult.data || []) as Sale[]);
+    setCustomers((customerResult.data || []) as Customer[]);
     setLoadingData(false);
   }
 
@@ -184,7 +201,7 @@ function AdminPage() {
   const lowStock = products.filter((item) => item.active && item.stock <= 5);
   const received = balances.reduce((sum, item) => sum + Number(item.amount_received || 0), 0);
   const pending = balances.reduce((sum, item) => sum + Number(item.balance || 0), 0);
-  const revenue = balances.reduce((sum, item) => sum + Number(item.amount_due || 0), 0);
+  const revenue = sales.reduce((sum, item) => sum + Number(item.total || 0), 0);
 
   function resetForm() {
     setForm({ name: "", description: "", category: categories[0]?.name || "Produtos químicos", sku: "", price: "", promoPrice: "", stock: "0", imageUrl: "", active: true });
@@ -304,6 +321,145 @@ function AdminPage() {
     notify(movementError ? "Estoque atualizado; não foi possível registrar o histórico." : "Estoque atualizado e movimentação registrada.");
   }
 
+  async function saveCustomer(event: FormEvent) {
+    event.preventDefault();
+    if (!customerDraft.name.trim()) return;
+    setBusy(true);
+    const { error } = await supabase.from("customers").insert({
+      name: customerDraft.name.trim(),
+      whatsapp: customerDraft.whatsapp.trim(),
+      cpf: customerDraft.cpf.trim() || null,
+      address: customerDraft.address.trim() || null,
+      notes: customerDraft.notes.trim()
+    });
+    setBusy(false);
+    if (error) notify("Não foi possível cadastrar o cliente: " + error.message);
+    else {
+      setCustomerDraft({ name: "", whatsapp: "", cpf: "", address: "", notes: "" });
+      setShowCustomerForm(false);
+      await loadData();
+      notify("Cliente salvo no banco de dados.");
+    }
+  }
+
+  async function saveSale(event: FormEvent) {
+    event.preventDefault();
+    const product = products.find((item) => item.id === saleDraft.productId);
+    const quantity = Number(saleDraft.quantity);
+    if (!product || !Number.isInteger(quantity) || quantity < 1 || quantity > product.stock) {
+      notify("Selecione um produto e confira a quantidade disponível.");
+      return;
+    }
+    const unitPrice = Number(product.promo_price ?? product.price);
+    const total = unitPrice * quantity;
+    const initial = Number(saleDraft.initialReceived || 0);
+    if (!Number.isFinite(initial) || initial < 0 || initial > total) {
+      notify("O valor recebido inicialmente não pode ser maior que o total da venda.");
+      return;
+    }
+    const status = initial >= total ? "paid" : initial > 0 ? "partially_paid" : "pending";
+    setBusy(true);
+    const { data: sale, error: saleError } = await supabase.from("sales").insert({
+      customer_id: saleDraft.customerId || null,
+      status,
+      sale_date: new Date(saleDraft.saleDate + "T12:00:00").toISOString(),
+      subtotal: total,
+      discount: 0,
+      total,
+      payment_method: saleDraft.method,
+      promised_payment_date: saleDraft.promisedDate || null,
+      notes: saleDraft.notes.trim()
+    }).select("id").single();
+    if (saleError || !sale) {
+      setBusy(false);
+      notify("Não foi possível registrar a venda: " + (saleError?.message || "erro desconhecido"));
+      return;
+    }
+    const { error: itemError } = await supabase.from("sale_items").insert({
+      sale_id: sale.id,
+      product_id: product.id,
+      product_name: product.name,
+      quantity,
+      unit_price: unitPrice,
+      line_total: total
+    });
+    const { error: receivableError } = await supabase.from("receivables").insert({
+      sale_id: sale.id,
+      amount_due: total,
+      due_date: saleDraft.dueDate || null,
+      promised_payment_date: saleDraft.promisedDate || null,
+      installment_count: 1,
+      notes: saleDraft.notes.trim()
+    });
+    if (itemError || receivableError) {
+      await supabase.from("sales").delete().eq("id", sale.id);
+      setBusy(false);
+      notify("A venda não foi concluída. Confira as informações e tente novamente.");
+      return;
+    }
+    let paymentWarning = "";
+    if (initial > 0) {
+      const { data: receivable } = await supabase.from("receivables").select("id").eq("sale_id", sale.id).single();
+      if (receivable?.id) {
+        const { error: paymentError } = await supabase.from("payments").insert({
+          receivable_id: receivable.id,
+          amount: initial,
+          paid_at: new Date(saleDraft.saleDate + "T12:00:00").toISOString(),
+          method: saleDraft.method,
+          notes: "Pagamento inicial da venda"
+        });
+        if (paymentError) paymentWarning = " A venda foi salva, mas o recebimento inicial não foi lançado.";
+      }
+    }
+    const nextStock = product.stock - quantity;
+    const { error: stockError } = await supabase.from("products").update({ stock: nextStock }).eq("id", product.id);
+    if (!stockError) {
+      await supabase.from("stock_movements").insert({
+        product_id: product.id, movement_type: "out", quantity,
+        previous_stock: product.stock, new_stock: nextStock,
+        reason: "Saída por venda", sale_id: sale.id
+      });
+    } else {
+      paymentWarning += " O estoque não foi atualizado automaticamente.";
+    }
+    setBusy(false);
+    setShowSaleForm(false);
+    setSaleDraft({ customerId: "", productId: "", quantity: "1", saleDate: new Date().toISOString().slice(0,10), dueDate: "", promisedDate: "", method: "Dinheiro", initialReceived: "0", notes: "" });
+    await loadData();
+    notify("Venda registrada." + paymentWarning);
+  }
+
+  async function receivePayment(event: FormEvent) {
+    event.preventDefault();
+    const balance = balances.find((item) => item.id === paymentDraft.balanceId);
+    const amount = Number(paymentDraft.amount);
+    if (!balance || !Number.isFinite(amount) || amount <= 0 || amount > Number(balance.balance)) {
+      notify("Informe um valor válido, até o saldo pendente.");
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.from("payments").insert({
+      receivable_id: balance.id,
+      amount,
+      paid_at: new Date(paymentDraft.paidDate + "T12:00:00").toISOString(),
+      method: paymentDraft.method,
+      notes: paymentDraft.notes.trim()
+    });
+    if (!error) {
+      const newReceived = Number(balance.amount_received) + amount;
+      const newStatus = newReceived >= Number(balance.amount_due) ? "paid" : "partially_paid";
+      await supabase.from("sales").update({ status: newStatus }).eq("id", balance.sale_id);
+    }
+    setBusy(false);
+    if (error) notify("Não foi possível lançar o recebimento: " + error.message);
+    else {
+      setShowPaymentForm(false);
+      setPaymentDraft({ balanceId: "", amount: "", paidDate: new Date().toISOString().slice(0,10), method: "Pix", notes: "" });
+      await loadData();
+      notify("Recebimento lançado e saldo recalculado.");
+    }
+  }
+
   async function updateOrder(order: WebsiteOrder, status: string) {
     const { error } = await supabase.from("website_orders").update({ status }).eq("id", order.id);
     if (error) notify("Não foi possível atualizar o pedido: " + error.message);
@@ -345,8 +501,10 @@ function AdminPage() {
   const navigation = [
     ["Visão geral", ChartNoAxesCombined],
     ["Produtos e estoque", Boxes],
+    ["Vendas", ShoppingBag],
+    ["Clientes", Users],
+    ["Contas a receber", CalendarClock],
     ["Pedidos do site", ClipboardList],
-    ["Financeiro", CircleDollarSign],
   ] as const;
 
   return (
@@ -430,8 +588,65 @@ function AdminPage() {
           </div>
         )}
 
-        {tab === "Financeiro" && (
+        {tab === "Contas a receber" && (
           <>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Total a receber</p><strong className="mt-2 block text-2xl">{money(revenue)}</strong></article>
+              <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Já recebido</p><strong className="mt-2 block text-2xl text-emerald-300">{money(received)}</strong></article>
+              <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Saldo pendente</p><strong className="mt-2 block text-2xl text-amber-300">{money(pending)}</strong></article>
+            </div>
+            <div className="mt-6 overflow-x-auto rounded-xl border border-white/10 bg-[#0d2038]"><table className="w-full min-w-[700px] text-left text-sm"><thead className="border-b border-white/10 text-xs uppercase text-slate-500"><tr>{["Venda","Valor","Recebido","Saldo","Vencimento","Situação"].map((label) => <th key={label} className="p-4">{label}</th>)}</tr></thead><tbody>{balances.map((item) => <tr key={item.id} className="border-b border-white/5"><td className="p-4">{item.sale_id.slice(0,8).toUpperCase()}</td><td className="p-4">{money(Number(item.amount_due))}</td><td className="p-4 text-emerald-300">{money(Number(item.amount_received))}</td><td className="p-4 text-amber-300">{money(Number(item.balance))}</td><td className="p-4">{item.due_date ? date(item.due_date) : "Não informado"}</td><td className="p-4">{item.payment_status === "paid" ? "Pago" : item.payment_status === "partially_paid" ? "Parcial" : "Pendente"}</td></tr>)}{!balances.length && <tr><td colSpan={6} className="p-10 text-center text-slate-500">Nenhuma conta a receber cadastrada.</td></tr>}</tbody></table></div>
+          </>
+        )}
+
+        {tab === "Vendas" && (
+          <>
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-slate-400">Registro de vendas da loja, com baixa automática do estoque e criação de conta a receber.</p>
+              <button onClick={() => { setSaleDraft((draft) => ({...draft, productId: products[0]?.id || ""})); setShowSaleForm(!showSaleForm); }} className="rounded-lg bg-sky-500 px-4 py-3 text-sm font-bold">+ Registrar venda</button>
+            </div>
+            {showSaleForm && <form onSubmit={saveSale} className="mb-6 grid gap-3 rounded-xl border border-white/10 bg-[#0d2038] p-5 sm:grid-cols-2">
+              <label className="text-sm text-slate-300 sm:col-span-2">Cliente<select value={saleDraft.customerId} onChange={(event) => setSaleDraft({...saleDraft,customerId:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"><option value="">Cliente avulso</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+              <label className="text-sm text-slate-300 sm:col-span-2">Produto<select required value={saleDraft.productId} onChange={(event) => setSaleDraft({...saleDraft,productId:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"><option value="">Selecione</option>{products.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name} · estoque {item.stock} · {money(Number(item.promo_price ?? item.price))}</option>)}</select></label>
+              <label className="text-sm text-slate-300">Quantidade<input required type="number" min="1" step="1" value={saleDraft.quantity} onChange={(event) => setSaleDraft({...saleDraft,quantity:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <label className="text-sm text-slate-300">Data da venda<input type="date" required value={saleDraft.saleDate} onChange={(event) => setSaleDraft({...saleDraft,saleDate:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <label className="text-sm text-slate-300">Vencimento<input type="date" value={saleDraft.dueDate} onChange={(event) => setSaleDraft({...saleDraft,dueDate:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <label className="text-sm text-slate-300">Data prometida pelo cliente<input type="date" value={saleDraft.promisedDate} onChange={(event) => setSaleDraft({...saleDraft,promisedDate:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <label className="text-sm text-slate-300">Forma de pagamento<select value={saleDraft.method} onChange={(event) => setSaleDraft({...saleDraft,method:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3">{["Dinheiro","Pix","Cartão de débito","Cartão de crédito","Transferência","Outro"].map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label className="text-sm text-slate-300">Valor recebido agora (R$)<input type="number" min="0" step="0.01" value={saleDraft.initialReceived} onChange={(event) => setSaleDraft({...saleDraft,initialReceived:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <label className="text-sm text-slate-300 sm:col-span-2">Observações<textarea value={saleDraft.notes} onChange={(event) => setSaleDraft({...saleDraft,notes:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <div className="flex gap-2 sm:col-span-2"><button disabled={busy} className="rounded-lg bg-sky-500 px-5 py-3 text-sm font-bold disabled:opacity-50">{busy ? "Salvando..." : "Salvar venda"}</button><button type="button" onClick={() => setShowSaleForm(false)} className="rounded-lg border border-white/10 px-5 py-3 text-sm">Cancelar</button></div>
+            </form>}
+            <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#0d2038]"><table className="w-full min-w-[760px] text-left text-sm"><thead className="border-b border-white/10 text-xs uppercase text-slate-500"><tr>{["Venda","Data","Cliente","Produtos","Total","Situação"].map((label) => <th key={label} className="p-4">{label}</th>)}</tr></thead><tbody>{sales.map((item) => <tr key={item.id} className="border-b border-white/5"><td className="p-4">#{item.sale_number}</td><td className="p-4">{date(item.sale_date)}</td><td className="p-4">{item.customers?.name || "Cliente avulso"}</td><td className="p-4">{(item.sale_items || []).map((line) => line.quantity + "x " + line.product_name).join(", ")}</td><td className="p-4">{money(Number(item.total))}</td><td className="p-4">{item.status === "paid" ? "Paga" : item.status === "partially_paid" ? "Parcial" : item.status === "cancelled" ? "Cancelada" : "Pendente"}</td></tr>)}{!sales.length && <tr><td colSpan={6} className="p-10 text-center text-slate-500">Nenhuma venda registrada.</td></tr>}</tbody></table></div>
+          </>
+        )}
+
+        {tab === "Clientes" && (
+          <>
+            <div className="mb-5 flex items-center justify-between gap-3"><p className="text-sm text-slate-400">Cadastro e consulta de clientes.</p><button onClick={() => setShowCustomerForm(!showCustomerForm)} className="rounded-lg bg-sky-500 px-4 py-3 text-sm font-bold">+ Novo cliente</button></div>
+            {showCustomerForm && <form onSubmit={saveCustomer} className="mb-6 grid gap-3 rounded-xl border border-white/10 bg-[#0d2038] p-5 sm:grid-cols-2">
+              <label className="text-sm text-slate-300">Nome<input required value={customerDraft.name} onChange={(event) => setCustomerDraft({...customerDraft,name:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <label className="text-sm text-slate-300">WhatsApp<input value={customerDraft.whatsapp} onChange={(event) => setCustomerDraft({...customerDraft,whatsapp:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <label className="text-sm text-slate-300">CPF (opcional)<input value={customerDraft.cpf} onChange={(event) => setCustomerDraft({...customerDraft,cpf:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <label className="text-sm text-slate-300">Endereço<input value={customerDraft.address} onChange={(event) => setCustomerDraft({...customerDraft,address:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <label className="text-sm text-slate-300 sm:col-span-2">Observações<textarea value={customerDraft.notes} onChange={(event) => setCustomerDraft({...customerDraft,notes:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <div className="flex gap-2 sm:col-span-2"><button disabled={busy} className="rounded-lg bg-sky-500 px-5 py-3 text-sm font-bold">Salvar cliente</button><button type="button" onClick={() => setShowCustomerForm(false)} className="rounded-lg border border-white/10 px-5 py-3 text-sm">Cancelar</button></div>
+            </form>}
+            <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#0d2038]"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b border-white/10 text-xs uppercase text-slate-500"><tr>{["Cliente","WhatsApp","CPF","Endereço","Vendas"].map((label) => <th key={label} className="p-4">{label}</th>)}</tr></thead><tbody>{customers.map((item) => <tr key={item.id} className="border-b border-white/5"><td className="p-4">{item.name}</td><td className="p-4">{item.whatsapp || "—"}</td><td className="p-4">{item.cpf || "—"}</td><td className="p-4">{item.address || "—"}</td><td className="p-4">{sales.filter((sale) => sale.customer_id === item.id).length}</td></tr>)}{!customers.length && <tr><td colSpan={5} className="p-10 text-center text-slate-500">Nenhum cliente cadastrado.</td></tr>}</tbody></table></div>
+          </>
+        )}
+
+        {tab === "Contas a receber" && (
+          <>
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-slate-400">Cada recebimento é registrado separadamente. Promessas de pagamento não contam como dinheiro recebido.</p><button onClick={() => { setPaymentDraft({...paymentDraft,balanceId:balances.find((item) => Number(item.balance) > 0)?.id || ""}); setShowPaymentForm(!showPaymentForm); }} className="rounded-lg bg-sky-500 px-4 py-3 text-sm font-bold">+ Lançar recebimento</button></div>
+            {showPaymentForm && <form onSubmit={receivePayment} className="mb-6 grid gap-3 rounded-xl border border-white/10 bg-[#0d2038] p-5 sm:grid-cols-2">
+              <label className="text-sm text-slate-300 sm:col-span-2">Venda / saldo pendente<select required value={paymentDraft.balanceId} onChange={(event) => setPaymentDraft({...paymentDraft,balanceId:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"><option value="">Selecione</option>{balances.filter((item) => Number(item.balance) > 0).map((item) => <option key={item.id} value={item.id}>Venda {item.sale_id.slice(0,8)} · saldo {money(Number(item.balance))}</option>)}</select></label>
+              <label className="text-sm text-slate-300">Valor recebido (R$)<input required type="number" min="0.01" step="0.01" value={paymentDraft.amount} onChange={(event) => setPaymentDraft({...paymentDraft,amount:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <label className="text-sm text-slate-300">Data do recebimento<input required type="date" value={paymentDraft.paidDate} onChange={(event) => setPaymentDraft({...paymentDraft,paidDate:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <label className="text-sm text-slate-300">Forma de pagamento<select value={paymentDraft.method} onChange={(event) => setPaymentDraft({...paymentDraft,method:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3">{["Pix","Dinheiro","Cartão de débito","Cartão de crédito","Transferência","Outro"].map((item) => <option key={item}>{item}</option>)}</select></label>
+              <label className="text-sm text-slate-300">Observações<input value={paymentDraft.notes} onChange={(event) => setPaymentDraft({...paymentDraft,notes:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3"/></label>
+              <div className="flex gap-2 sm:col-span-2"><button disabled={busy} className="rounded-lg bg-sky-500 px-5 py-3 text-sm font-bold">Salvar recebimento</button><button type="button" onClick={() => setShowPaymentForm(false)} className="rounded-lg border border-white/10 px-5 py-3 text-sm">Cancelar</button></div>
+            </form>}
             <div className="grid gap-4 sm:grid-cols-3">
               <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Total a receber</p><strong className="mt-2 block text-2xl">{money(revenue)}</strong></article>
               <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Já recebido</p><strong className="mt-2 block text-2xl text-emerald-300">{money(received)}</strong></article>
