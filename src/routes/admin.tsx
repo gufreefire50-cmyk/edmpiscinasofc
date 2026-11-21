@@ -37,7 +37,13 @@ type Sale = {
 };
 const money = (value: number) =>
   Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const date = (value: string) => new Date(value).toLocaleDateString("pt-BR");
+const date = (value: string) => {
+  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-");
+    return day + "/" + month + "/" + year;
+  }
+  return new Date(value).toLocaleDateString("pt-BR");
+};
 const slugify = (value: string) =>
   value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
     .replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -535,10 +541,11 @@ function AdminPage() {
 
         {tab === "Visão geral" && (
           <>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               {[
                 { label: "Produtos cadastrados", value: String(products.length), Icon: Boxes },
                 { label: "Vendas registradas", value: String(sales.length), Icon: ShoppingBag },
+                { label: "Clientes cadastrados", value: String(customers.length), Icon: Users },
                 { label: "Recebido", value: money(received), Icon: CircleDollarSign },
                 { label: "Em aberto", value: money(pending), Icon: CalendarClock }
               ].map((item) => <article key={item.label} className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><item.Icon className="mb-4 text-sky-300"/><p className="text-sm text-slate-400">{item.label}</p><strong className="mt-1 block text-2xl">{item.value}</strong></article>)}
@@ -637,7 +644,7 @@ function AdminPage() {
               <div className="flex gap-2 sm:col-span-2"><button disabled={busy} className="rounded-lg bg-sky-500 px-5 py-3 text-sm font-bold">Salvar recebimento</button><button type="button" onClick={() => setShowPaymentForm(false)} className="rounded-lg border border-white/10 px-5 py-3 text-sm">Cancelar</button></div>
             </form>}
             <div className="grid gap-4 sm:grid-cols-3">
-              <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Total a receber</p><strong className="mt-2 block text-2xl">{money(revenue)}</strong></article>
+              <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Valor das vendas a prazo</p><strong className="mt-2 block text-2xl">{money(revenue)}</strong></article>
               <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Já recebido</p><strong className="mt-2 block text-2xl text-emerald-300">{money(received)}</strong></article>
               <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Saldo pendente</p><strong className="mt-2 block text-2xl text-amber-300">{money(pending)}</strong></article>
             </div>
