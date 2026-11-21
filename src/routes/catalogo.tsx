@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Minus, Plus, Search, ShoppingBag, Store, Trash2 } from "lucide-react";
 
-type Product = { id: string; name: string; description: string | null; category: string; price: number; promo_price: number | null; stock: number; image_url: string | null; active: boolean };
+type Product = { id:string; name:string; description:string; category:string; price:number; promoPrice:number|null; stock:number; sku:string; active:boolean; image:string };
+const STORAGE_KEY="edm-piscinas-local-v1";
 type CartItem = { product: Product; quantity: number };
 const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/$/, "");
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
@@ -22,17 +23,20 @@ function CatalogPage() {
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState("");
   useEffect(()=>{
-    let alive=true;
-    async function load(){
-      if(!supabaseUrl||!anonKey){setError("O catálogo será liberado assim que o banco de produtos da loja for conectado.");setLoading(false);return;}
-      try{
-        const res=await fetch(`${supabaseUrl}/rest/v1/products?select=id,name,description,category,price,promo_price,stock,image_url,active&active=eq.true&order=name.asc`,{headers:{apikey:anonKey,Authorization:`Bearer ${anonKey}`}});
-        if(!res.ok) throw new Error("Não foi possível carregar os produtos.");
-        const rows=await res.json(); if(alive)setProducts(rows);
-      }catch(e){if(alive)setError(e instanceof Error?e.message:"Erro ao carregar catálogo.");}
-      finally{if(alive)setLoading(false);}
-    }
-    load(); return ()=>{alive=false;};
+    const readProducts=()=>{
+      try {
+        const raw=localStorage.getItem(STORAGE_KEY);
+        const saved=raw?JSON.parse(raw):{products:[]};
+        setProducts((saved.products||[]).filter((p:Product)=>p.active!==false).map((p:Product)=>({...p,description:p.description||"",promo_price:p.promoPrice??null,image_url:p.image||null})));
+        setError("");
+      } catch { setError("Não foi possível ler os produtos cadastrados."); }
+      setLoading(false);
+    };
+    readProducts();
+    const onStorage=(event:StorageEvent)=>{if(event.key===STORAGE_KEY)readProducts();};
+    window.addEventListener("storage",onStorage);
+    window.addEventListener("edm-products-updated",readProducts);
+    return ()=>{window.removeEventListener("storage",onStorage);window.removeEventListener("edm-products-updated",readProducts);};
   },[]);
   const categories=useMemo(()=>["Todas",...Array.from(new Set(products.map(p=>p.category))).sort()],[products]);
   const visible=products.filter(p=>(category==="Todas"||p.category===category)&&(`${p.name} ${p.description||""}`).toLowerCase().includes(query.toLowerCase()));
@@ -41,7 +45,7 @@ function CatalogPage() {
   function change(id:string,delta:number){setCart(current=>current.map(i=>i.product.id===id?{...i,quantity:Math.max(0,Math.min(i.product.stock,i.quantity+delta))}:i).filter(i=>i.quantity>0));}
   function sendOrder(){
     if(!name.trim()||customerPhone.replace(/\D/g,"").length<10||!cart.length)return;
-    const lines=cart.map(i=>`• ${i.quantity}x ${i.product.name} — ${brl((i.product.promo_price||i.product.price)*i.quantity)}`).join("\n");
+    const lines=cart.map(i=>`• ${i.quantity}x ${i.product.name} - ${brl((i.product.promo_price||i.product.price)*i.quantity)}`).join("\n");
     const message=`Olá! Quero fazer um pedido para RETIRADA NA LOJA EDM Piscinas.\n\nNome: ${name}\nWhatsApp: ${customerPhone}\n\n${lines}\n\nTotal: ${brl(total)}\nObservações: ${notes||"Nenhuma"}\n\nConfirmar disponibilidade e retirada, por favor.`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank","noopener,noreferrer");
   }
