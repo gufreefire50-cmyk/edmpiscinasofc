@@ -140,37 +140,9 @@ const services = [
     icon: Sparkles,
   },
 ];
-const categories = [
-  "Todos",
-  "Cloro",
-  "Algicidas",
-  "Produtos químicos",
-  "Tratamento de água",
-  "Bombas",
-  "Filtros",
-  "Aquecedores",
-  "Acessórios",
-];
-const equipment = [
-  {
-    name: "Gerador de cloro",
-    category: "Tratamento de água",
-    image: chlorine.url,
-    description: "Instalação de gerador de cloro e tratamento automático da água.",
-  },
-  {
-    name: "Bombas e filtros",
-    category: "Bombas",
-    image: pumps.url,
-    description: "Assistência técnica e soluções para bombas e sistemas de filtragem.",
-  },
-  {
-    name: "Aquecedores de piscina",
-    category: "Aquecedores",
-    image: heating.url,
-    description: "Instalação e manutenção de sistemas de aquecimento de piscinas.",
-  },
-];
+const PRODUCT_STORAGE_KEY = "edm-piscinas-local-v1";
+type StoreProduct = { id:string; name:string; description:string; category:string; price:number; promoPrice:number|null; stock:number; active:boolean; image:string };
+const categories = ["Todos","Cloro","Algicidas","Produtos químicos","Tratamento de água","Bombas","Filtros","Aquecedores","Acessórios"];
 const gallery = [
   {
     url: original.url,
@@ -233,6 +205,20 @@ function Index() {
     null,
   );
   const [sent, setSent] = useState(false);
+  const [storeProducts, setStoreProducts] = useState<StoreProduct[]>([]);
+  useEffect(() => {
+    const readStoreProducts = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(PRODUCT_STORAGE_KEY) || "{}");
+        setStoreProducts((saved.products || []).filter((p:StoreProduct) => p.active !== false));
+      } catch { setStoreProducts([]); }
+    };
+    readStoreProducts();
+    const onStorage = (event:StorageEvent) => { if (event.key === PRODUCT_STORAGE_KEY) readStoreProducts(); };
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("edm-products-updated", readStoreProducts);
+    return () => { window.removeEventListener("storage", onStorage); window.removeEventListener("edm-products-updated", readStoreProducts); };
+  }, []);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 65);
     onScroll();
@@ -252,12 +238,8 @@ function Index() {
       observer.disconnect();
     };
   }, []);
-  const products = equipment.filter(
-    (item) =>
-      category === "Todos" ||
-      item.category === category ||
-      (category === "Filtros" && item.name === "Bombas e filtros"),
-  );
+  const products = storeProducts.filter((item) => category === "Todos" || item.category === category);
+  const productCategories = ["Todos", ...Array.from(new Set(storeProducts.map((item) => item.category))).sort()];
   function submitQuote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -513,7 +495,7 @@ function Index() {
             />
             <div className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-lg border border-white/10 bg-white/5 p-5"><div><strong className="block text-sm">Catálogo da loja</strong><span className="mt-1 block text-xs text-slate-400">Consulte produtos, monte seu carrinho e solicite para retirar na loja.</span></div><a href="/catalogo" className="inline-flex items-center gap-2 rounded-md bg-sky-500 px-5 py-3 text-xs font-extrabold uppercase tracking-wide text-white transition hover:bg-sky-400">Acessar catálogo <span aria-hidden="true">↗</span></a></div>
             <div className="categories" aria-label="Categorias de produtos">
-              {categories.map((item) => (
+              {productCategories.map((item) => (
                 <Button
                   key={item}
                   variant="ghost"
@@ -529,26 +511,13 @@ function Index() {
               <div className="products-grid">
                 {products.map((item) => (
                   <article className="product-card" key={item.name}>
-                    <img
-                      src={item.image}
-                      alt={`Material original enviado pela EDM: ${item.name}`}
-                      loading="lazy"
-                    />
+                    {item.image ? <img src={item.image} alt={item.name} loading="lazy" /> : <div className="service-image grid place-items-center bg-white/5 text-slate-400">EDM Piscinas</div>}
                     <div className="product-content">
                       <small>{item.category}</small>
                       <h3>{item.name}</h3>
                       <p>{item.description}</p>
                       <Button variant="glass" asChild className="action">
-                        <a
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          href={whatsappUrl(
-                            `Olá! Gostaria de consultar a disponibilidade de ${item.name.toLowerCase()}.`,
-                          )}
-                        >
-                          Consultar disponibilidade
-                          <ArrowUpRight />
-                        </a>
+                        <a href="/catalogo">Ver no catálogo <ArrowUpRight /></a>
                       </Button>
                     </div>
                   </article>
