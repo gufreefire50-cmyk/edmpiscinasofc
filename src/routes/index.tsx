@@ -45,9 +45,6 @@ import s5 from "@/assets/servico-5.asset.json";
 import s6 from "@/assets/servico-6.asset.json";
 import s7 from "@/assets/servico-7.asset.json";
 import s8 from "@/assets/servico-8.asset.json";
-import chlorine from "@/assets/gerador-cloro.asset.json";
-import pumps from "@/assets/bombas.asset.json";
-import heating from "@/assets/aquecimento.asset.json";
 import lighting from "@/assets/iluminacao.asset.json";
 import automation from "@/assets/automacao.asset.json";
 import restoration from "@/assets/restauracao.asset.json";
@@ -142,7 +139,6 @@ const services = [
 ];
 const PRODUCT_STORAGE_KEY = "edm-piscinas-local-v1";
 type StoreProduct = { id:string; name:string; description:string; category:string; price:number; promoPrice:number|null; stock:number; active:boolean; image:string };
-const categories = ["Todos","Cloro","Algicidas","Produtos químicos","Tratamento de água","Bombas","Filtros","Aquecedores","Acessórios"];
 const gallery = [
   {
     url: original.url,
@@ -516,6 +512,7 @@ function Index() {
                       <small>{item.category}</small>
                       <h3>{item.name}</h3>
                       <p>{item.description}</p>
+                      <p className="mt-3 font-semibold text-sky-300">{item.promoPrice ? `R$ ${item.promoPrice.toFixed(2).replace(".", ",")}` : `R$ ${item.price.toFixed(2).replace(".", ",")}`} <span className="text-xs font-normal text-slate-400">· {item.stock > 0 ? `${item.stock} disponíveis` : "Indisponível"}</span></p>
                       <Button variant="glass" asChild className="action">
                         <a href="/catalogo">Ver no catálogo <ArrowUpRight /></a>
                       </Button>
