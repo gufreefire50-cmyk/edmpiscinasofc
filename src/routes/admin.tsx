@@ -1,67 +1,467 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Activity, AlertTriangle, Boxes, CalendarClock, ChartNoAxesCombined, CircleDollarSign, ClipboardList, LogOut, PackagePlus, Search, ShieldCheck, ShoppingBag, Users, Trash2, Pencil, Plus, X, ImagePlus } from "lucide-react";
+import {
+  Activity, AlertTriangle, Boxes, CalendarClock, ChartNoAxesCombined,
+  CircleDollarSign, ClipboardList, ImagePlus, LogOut, PackagePlus,
+  Pencil, Plus, Search, ShieldCheck, ShoppingBag, Trash2, Users
+} from "lucide-react";
+import { EDM_ADMIN_EMAIL, supabase } from "@/lib/supabase";
 
-type Product = { id:string; name:string; description:string; category:string; price:number; promoPrice:number|null; stock:number; sku:string; active:boolean; image:string };
-type Customer = { id:string; name:string; phone:string; cpf:string; address:string; notes:string };
-type Sale = { id:string; customerId:string; customerName:string; date:string; dueDate:string; total:number; received:number; status:string; method:string; notes:string; items:{productId:string;name:string;quantity:number;price:number}[] };
-type Payment = { id:string; saleId:string; amount:number; date:string; method:string; note:string };
-type StoreData = { products:Product[]; customers:Customer[]; sales:Sale[]; payments:Payment[] };
-const KEY="edm-piscinas-local-v1";
-const ADMIN_EMAIL="edm.piscinas@gmail.com";
-const ADMIN_PASSWORD_SHA256="3c10b25c0bffe8dc074a1d1e0803bb38a62a646fd5d4695122b99c041360119a";
-const money=(v:number)=>v.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
-const id=()=>crypto.randomUUID();
-const today=()=>new Date().toISOString().slice(0,10);
-const empty:StoreData={products:[],customers:[],sales:[],payments:[]};
-export const Route=createFileRoute("/admin")({component:AdminPage});
+type Category = { id: string; name: string; slug: string };
+type Product = {
+  id: string; name: string; description: string; category_id: string | null;
+  sku: string | null; price: number; promo_price: number | null; stock: number;
+  image_url: string | null; active: boolean; created_at: string;
+  categories?: { name?: string } | null;
+};
+type WebsiteOrder = {
+  id: string; customer_name: string; whatsapp: string;
+  items: Array<{ name?: string; quantity?: number; price?: number }>;
+  total: number; notes: string; status: string; created_at: string;
+};
+type Balance = {
+  id: string; sale_id: string; amount_due: number; amount_received: number;
+  balance: number; due_date: string | null; promised_payment_date: string | null;
+  payment_status: string;
+};
+const money = (value: number) =>
+  Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const date = (value: string) => new Date(value).toLocaleDateString("pt-BR");
+const slugify = (value: string) =>
+  value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
-function AdminPage(){
- const [data,setData]=useState<StoreData>(empty),[loaded,setLoaded]=useState(false),[tab,setTab]=useState("Visão geral"),[query,setQuery]=useState(""),[notice,setNotice]=useState("");
- const [authenticated,setAuthenticated]=useState(false),[loginEmail,setLoginEmail]=useState(""),[loginPassword,setLoginPassword]=useState(""),[loginError,setLoginError]=useState("");
- const [modal,setModal]=useState<"product"|"customer"|"sale"|"payment"|null>(null),[editing,setEditing]=useState<string|null>(null);
- const [p,setP]=useState({name:"",description:"",category:"Produtos químicos",price:"",promoPrice:"",stock:"0",sku:"",image:""});
- const [c,setC]=useState({name:"",phone:"",cpf:"",address:"",notes:""});
- const [s,setS]=useState({customerId:"",date:today(),dueDate:"",method:"Dinheiro",notes:"",productId:"",quantity:"1",received:"0"});
- const [pay,setPay]=useState({saleId:"",amount:"",date:today(),method:"Pix",note:""});
- useEffect(()=>{try{const raw=localStorage.getItem(KEY);if(raw)setData({...empty,...JSON.parse(raw)});setAuthenticated(sessionStorage.getItem("edm-admin-session")==="ok");}catch{}setLoaded(true);},[]);
- useEffect(()=>{if(loaded){localStorage.setItem(KEY,JSON.stringify(data));}},[data,loaded]);
- const notify=(m:string)=>{setNotice(m);window.setTimeout(()=>setNotice(""),3500);};
- async function handleLogin(e:FormEvent){e.preventDefault();const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(loginPassword));const hash=Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,"0")).join("");if(loginEmail.trim().toLowerCase()===ADMIN_EMAIL&&hash===ADMIN_PASSWORD_SHA256){sessionStorage.setItem("edm-admin-session","ok");setAuthenticated(true);setLoginError("");setLoginPassword("");}else setLoginError("E-mail ou senha incorretos.");}
- function handleLogout(){sessionStorage.removeItem("edm-admin-session");setAuthenticated(false);setLoginEmail("");setLoginPassword("");}
- const products=data.products,customers=data.customers,sales=data.sales;
- const filtered=useMemo(()=>products.filter(x=>(x.name+" "+x.sku+" "+x.category).toLowerCase().includes(query.toLowerCase())),[products,query]);
- const received=sales.reduce((a,x)=>a+x.received,0),pending=sales.reduce((a,x)=>a+Math.max(0,x.total-x.received),0),revenue=sales.filter(x=>x.status!=="Cancelada").reduce((a,x)=>a+x.total,0);
- const low=products.filter(x=>x.active&&x.stock<=5);
- function resetProduct(){setP({name:"",description:"",category:"Produtos químicos",price:"",promoPrice:"",stock:"0",sku:"",image:""});setEditing(null);}
- function saveProduct(e:FormEvent){e.preventDefault();const item:Product={id:editing||id(),name:p.name.trim(),description:p.description,category:p.category,price:Number(p.price),promoPrice:p.promoPrice?Number(p.promoPrice):null,stock:Number(p.stock),sku:p.sku,active:true,image:p.image};setData(d=>({...d,products:editing?d.products.map(x=>x.id===editing?item:x):[item,...d.products]}));setModal(null);resetProduct();notify("Produto salvo no navegador.");}
- function editProduct(x:Product){setP({name:x.name,description:x.description,category:x.category,price:String(x.price),promoPrice:x.promoPrice?String(x.promoPrice):"",stock:String(x.stock),sku:x.sku,image:x.image});setEditing(x.id);setModal("product");}
- function saveCustomer(e:FormEvent){e.preventDefault();setData(d=>({...d,customers:[{id:id(),...c},...d.customers]}));setC({name:"",phone:"",cpf:"",address:"",notes:""});setModal(null);notify("Cliente cadastrado.");}
- function saveSale(e:FormEvent){e.preventDefault();const prod=products.find(x=>x.id===s.productId);if(!prod||Number(s.quantity)<1||Number(s.quantity)>prod.stock){notify("Confira o produto e a quantidade em estoque.");return;}const customer=customers.find(x=>x.id===s.customerId);const qty=Number(s.quantity),total=(prod.promoPrice||prod.price)*qty,initial=Math.min(total,Math.max(0,Number(s.received)||0));const sale:Sale={id:id(),customerId:s.customerId,customerName:customer?.name||"Cliente avulso",date:s.date,dueDate:s.dueDate,total,received:initial,status:initial>=total?"Paga":initial>0?"Parcial":"Pendente",method:s.method,notes:s.notes,items:[{productId:prod.id,name:prod.name,quantity:qty,price:prod.promoPrice||prod.price}]};setData(d=>({...d,sales:[sale,...d.sales],products:d.products.map(x=>x.id===prod.id?{...x,stock:x.stock-qty}:x),payments:initial>0?[{id:id(),saleId:sale.id,amount:initial,date:s.date,method:s.method,note:"Pagamento inicial"},...d.payments]:d.payments}));setModal(null);notify("Venda registrada e estoque atualizado.");}
- function savePayment(e:FormEvent){e.preventDefault();const sale=sales.find(x=>x.id===pay.saleId);const amount=Number(pay.amount);if(!sale||amount<=0||amount>sale.total-sale.received){notify("Valor inválido. Confira o saldo pendente.");return;}setData(d=>({...d,sales:d.sales.map(x=>x.id===sale.id?{...x,received:x.received+amount,status:x.received+amount>=x.total?"Paga":"Parcial"}:x),payments:[{id:id(),...{...pay,amount}},...d.payments]}));setModal(null);notify("Recebimento lançado.");}
- function removeProduct(x:Product){if(confirm("Excluir este produto?"))setData(d=>({...d,products:d.products.filter(p=>p.id!==x.id)}));}
- function imageFile(file?:File){if(!file)return;if(file.size>2_000_000){notify("Imagem acima de 2 MB. Escolha um arquivo menor.");return;}const reader=new FileReader();reader.onload=()=>setP(v=>({...v,image:String(reader.result)}));reader.readAsDataURL(file);}
- const nav=[["Visão geral",ChartNoAxesCombined],["Produtos e estoque",Boxes],["Vendas",ShoppingBag],["Clientes",Users],["Contas a receber",CalendarClock],["Relatórios",Activity]] as const;
- if(!loaded)return <main className="min-h-screen bg-[#071426] text-white grid place-items-center">Carregando painel...</main>;
- if(!authenticated)return <main className="grid min-h-screen place-items-center bg-[#071426] px-4 text-white"><form onSubmit={handleLogin} className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0d2038] p-8 shadow-2xl"><div className="mb-6 text-center"><div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-xl bg-sky-500/15 text-sky-300"><ShieldCheck size={28}/></div><p className="text-xs uppercase tracking-[.25em] text-sky-300">EDM Piscinas</p><h1 className="mt-2 text-2xl font-bold">Acesso administrativo</h1><p className="mt-2 text-sm text-slate-400">Entre com suas credenciais para continuar.</p></div><label className="mb-2 block text-sm text-slate-300">E-mail</label><input type="email" required autoComplete="username" value={loginEmail} onChange={e=>setLoginEmail(e.target.value)} placeholder="Seu e-mail" className="field mb-4"/><label className="mb-2 block text-sm text-slate-300">Senha</label><input type="password" required autoComplete="current-password" value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} placeholder="Sua senha" className="field mb-4"/>{loginError&&<p role="alert" className="mb-4 text-sm text-red-300">{loginError}</p>}<button className="w-full rounded-lg bg-sky-500 p-3 font-bold hover:bg-sky-400">Entrar no painel</button><a href="/" className="mt-5 block text-center text-sm text-slate-400 hover:text-white">← Voltar ao site</a><p className="mt-5 text-center text-xs leading-5 text-amber-200/80">Acesso local de teste. Não é autenticação segura para publicar dados comerciais.</p></form><style>{`.field{width:100%;border-radius:.5rem;background:#071426;padding:.8rem;color:white;font-size:.875rem;outline:none}.field:focus{box-shadow:0 0 0 1px #38bdf8}.field::placeholder{color:#64748b}`}</style></main>;
- return <main className="min-h-screen bg-[#071426] text-white md:flex">
- <aside className="border-b border-white/10 bg-[#0b1b30] p-5 md:min-h-screen md:w-64 md:border-b-0 md:border-r"><a href="/" className="mb-6 flex items-center gap-3"><div className="rounded-lg bg-sky-500/15 p-2 text-sky-300"><ShieldCheck/></div><div><strong>EDM Piscinas</strong><small className="block text-slate-400">Gestão local</small></div></a><nav className="grid grid-cols-2 gap-2 md:grid-cols-1">{nav.map(([name,Icon])=><button key={name} onClick={()=>setTab(name)} className={`flex items-center gap-3 rounded-lg px-3 py-3 text-left text-sm ${tab===name?"bg-sky-500/15 text-sky-200":"text-slate-400 hover:bg-white/5"}`}><Icon size={18}/>{name}</button>)}</nav><div className="mt-8 rounded-lg border border-amber-300/20 bg-amber-300/5 p-3 text-xs leading-5 text-amber-200">Modo local. Os dados ficam apenas neste navegador.</div><a href="/" className="mt-5 inline-block text-sm text-slate-400">← Voltar ao site</a></aside>
- <section className="min-w-0 flex-1 p-5 md:p-9"><header className="mb-7 flex flex-wrap items-center justify-between gap-4"><div><p className="text-xs uppercase tracking-[.2em] text-sky-300">EDM Piscinas · modo local</p><h1 className="mt-1 text-3xl font-bold">{tab}</h1></div><div className="flex items-center gap-3"><span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs text-amber-200">Sem Supabase</span><button onClick={handleLogout} className="rounded-lg border border-white/15 px-3 py-2 text-xs text-slate-300 hover:bg-white/5">Sair</button></div></header>
- {notice&&<div role="status" className="mb-5 rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm text-emerald-200">{notice}</div>}
- {tab==="Visão geral"&&<><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[{label:"Faturamento registrado",value:money(revenue),Icon:CircleDollarSign},{label:"Recebido",value:money(received),Icon:ClipboardList},{label:"A receber",value:money(pending),Icon:CalendarClock},{label:"Produtos com estoque baixo",value:String(low.length),Icon:AlertTriangle}].map(k=><article key={k.label} className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><k.Icon className="mb-4 text-sky-300"/><p className="text-sm text-slate-400">{k.label}</p><strong className="mt-1 block text-2xl">{k.value}</strong></article>)}</div><div className="mt-6 grid gap-4 lg:grid-cols-2"><div className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><h2 className="mb-4 font-semibold">Últimas vendas</h2>{sales.slice(0,5).map(x=><div key={x.id} className="flex justify-between border-b border-white/5 py-3 text-sm"><span>{x.customerName}<small className="block text-slate-500">{x.date}</small></span><strong>{money(x.total)}</strong></div>)}{!sales.length&&<p className="text-sm text-slate-500">Nenhuma venda registrada.</p>}</div><div className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><h2 className="mb-4 font-semibold">Alertas de estoque</h2>{low.map(x=><div key={x.id} className="flex justify-between border-b border-white/5 py-3 text-sm"><span>{x.name}</span><strong className="text-amber-300">{x.stock} un.</strong></div>)}{!low.length&&<p className="text-sm text-slate-500">Nenhum produto com estoque baixo.</p>}</div></div></>}
- {tab==="Produtos e estoque"&&<><div className="mb-5 flex flex-wrap gap-3"><div className="relative min-w-[200px] flex-1"><Search className="absolute left-3 top-3 text-slate-500" size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar produto, código ou categoria" className="w-full rounded-lg border border-white/10 bg-[#0d2038] py-3 pl-10 pr-3 text-sm"/></div><button onClick={()=>{resetProduct();setModal("product");}} className="rounded-lg bg-sky-500 px-4 py-3 text-sm font-bold">+ Novo produto</button></div><div className="overflow-x-auto rounded-xl border border-white/10 bg-[#0d2038]"><table className="w-full min-w-[720px] text-left text-sm"><thead className="border-b border-white/10 text-xs uppercase text-slate-500"><tr>{["Produto","Categoria","Preço","Estoque","Ações"].map(x=><th className="p-4" key={x}>{x}</th>)}</tr></thead><tbody>{filtered.map(x=><tr key={x.id} className="border-b border-white/5"><td className="p-4"><div className="flex items-center gap-3">{x.image?<img src={x.image} className="h-11 w-11 rounded object-cover"/>:<div className="grid h-11 w-11 place-items-center rounded bg-white/5"><Boxes size={18}/></div>}<span><b>{x.name}</b><small className="block text-slate-500">{x.sku||"Sem referência"}</small></span></div></td><td className="p-4 text-slate-400">{x.category}</td><td className="p-4">{money(x.promoPrice||x.price)}</td><td className="p-4"><span className={x.stock<=5?"text-amber-300":"text-emerald-300"}>{x.stock}</span><div className="mt-1 flex gap-1"><button onClick={()=>setData(d=>({...d,products:d.products.map(y=>y.id===x.id?{...y,stock:Math.max(0,y.stock-1)}:y)}))} className="rounded bg-white/10 px-2">−</button><button onClick={()=>setData(d=>({...d,products:d.products.map(y=>y.id===x.id?{...y,stock:y.stock+1}:y)}))} className="rounded bg-white/10 px-2">+</button></div></td><td className="p-4"><button onClick={()=>editProduct(x)} className="mr-3 text-sky-300"><Pencil size={17}/></button><button onClick={()=>removeProduct(x)} className="text-red-300"><Trash2 size={17}/></button></td></tr>)}{!filtered.length&&<tr><td colSpan={5} className="p-10 text-center text-slate-500">Nenhum produto cadastrado.</td></tr>}</tbody></table></div></>}
- {tab==="Vendas"&&<><button onClick={()=>{setS({...s,productId:products[0]?.id||"",customerId:""});setModal("sale");}} className="mb-5 rounded-lg bg-sky-500 px-4 py-3 text-sm font-bold">+ Registrar venda</button><DataTable headers={["Data","Cliente","Itens","Total","Recebido","Status"]} rows={sales.map(x=>[x.date,x.customerName,x.items.map(i=>i.quantity+"x "+i.name).join(", "),money(x.total),money(x.received),x.status])}/></>}
- {tab==="Clientes"&&<><button onClick={()=>setModal("customer")} className="mb-5 rounded-lg bg-sky-500 px-4 py-3 text-sm font-bold">+ Novo cliente</button><DataTable headers={["Nome","WhatsApp","CPF","Endereço","Compras"]} rows={customers.map(x=>[x.name,x.phone,x.cpf||"—",x.address||"—",String(sales.filter(s=>s.customerId===x.id).length)])}/></>}
- {tab==="Contas a receber"&&<><div className="mb-5 flex flex-wrap gap-3"><button onClick={()=>{setPay({...pay,saleId:sales.find(x=>x.total>x.received)?.id||""});setModal("payment");}} className="rounded-lg bg-sky-500 px-4 py-3 text-sm font-bold">+ Lançar recebimento</button><span className="self-center text-sm text-slate-400">Saldo pendente: <b className="text-amber-300">{money(pending)}</b></span></div><DataTable headers={["Venda","Cliente","Vencimento prometido","Total","Recebido","Saldo","Status"]} rows={sales.filter(x=>x.total>x.received).map(x=>[x.date,x.customerName,x.dueDate||"Não informado",money(x.total),money(x.received),money(x.total-x.received),x.status])}/><h2 className="mb-3 mt-8 font-semibold">Histórico de recebimentos</h2><DataTable headers={["Data","Venda","Valor","Método","Observação"]} rows={data.payments.map(x=>[x.date,sales.find(s=>s.id===x.saleId)?.customerName||"Venda removida",money(x.amount),x.method,x.note])}/></>}
- {tab==="Relatórios"&&<><div className="mb-5 grid gap-4 sm:grid-cols-3">{[{t:"Vendas",v:money(revenue)},{t:"Recebimentos",v:money(received)},{t:"Em aberto",v:money(pending)}].map(x=><div className="rounded-xl border border-white/10 bg-[#0d2038] p-5" key={x.t}><p className="text-sm text-slate-400">{x.t}</p><strong className="text-2xl">{x.v}</strong></div>)}</div><button onClick={()=>{const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="edm-piscinas-backup.json";a.click();URL.revokeObjectURL(a.href);}} className="rounded-lg border border-white/15 px-4 py-3 text-sm">Exportar backup dos dados</button><label className="ml-3 inline-block cursor-pointer rounded-lg border border-white/15 px-4 py-3 text-sm">Importar backup<input type="file" accept="application/json" className="hidden" onChange={async e=>{const f=e.target.files?.[0];if(!f)return;try{const parsed=JSON.parse(await f.text());if(!parsed.products||!parsed.sales||!parsed.customers)throw Error();setData({...empty,...parsed});notify("Backup importado.");}catch{notify("Arquivo de backup inválido.");}}}/></label></>}
- </section>
- {modal&&<div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/70 p-4"><div className="my-6 max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-[#0d2038] p-6"><div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-bold">{({product:editing?"Editar produto":"Novo produto",customer:"Novo cliente",sale:"Registrar venda",payment:"Lançar recebimento"} as const)[modal]}</h2><button onClick={()=>setModal(null)}><X/></button></div>
- {modal==="product"&&<form onSubmit={saveProduct} className="grid gap-3 sm:grid-cols-2"><input required placeholder="Nome do produto" value={p.name} onChange={e=>setP({...p,name:e.target.value})} className="field"/><input placeholder="Código / referência" value={p.sku} onChange={e=>setP({...p,sku:e.target.value})} className="field"/><input required type="number" min="0.01" step="0.01" placeholder="Preço de venda" value={p.price} onChange={e=>setP({...p,price:e.target.value})} className="field"/><input type="number" min="0" step="0.01" placeholder="Preço promocional" value={p.promoPrice} onChange={e=>setP({...p,promoPrice:e.target.value})} className="field"/><input required type="number" min="0" placeholder="Estoque inicial" value={p.stock} onChange={e=>setP({...p,stock:e.target.value})} className="field"/><select value={p.category} onChange={e=>setP({...p,category:e.target.value})} className="field">{["Produtos químicos","Cloro","Algicidas","Bombas","Filtros","Aquecedores","Acessórios","Tratamento de água"].map(x=><option key={x}>{x}</option>)}</select><textarea placeholder="Descrição" value={p.description} onChange={e=>setP({...p,description:e.target.value})} className="field sm:col-span-2"/><label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed border-white/20 p-3 text-sm text-slate-300 sm:col-span-2"><ImagePlus/> {p.image?"Imagem selecionada":"Adicionar foto do produto"}<input type="file" accept="image/*" className="hidden" onChange={e=>imageFile(e.target.files?.[0])}/></label>{p.image&&<img src={p.image} className="h-32 w-32 rounded-lg object-cover"/>}<button className="rounded-lg bg-sky-500 p-3 font-bold sm:col-span-2">Salvar produto</button></form>}
- {modal==="customer"&&<form onSubmit={saveCustomer} className="grid gap-3 sm:grid-cols-2">{(["name","phone","cpf","address"] as const).map(k=><input key={k} required={k==="name"||k==="phone"} placeholder={({name:"Nome completo",phone:"WhatsApp",cpf:"CPF (opcional)",address:"Endereço (opcional)"} as const)[k]} value={c[k]} onChange={e=>setC({...c,[k]:e.target.value})} className="field"/>)}<textarea placeholder="Observações" value={c.notes} onChange={e=>setC({...c,notes:e.target.value})} className="field sm:col-span-2"/><button className="rounded-lg bg-sky-500 p-3 font-bold sm:col-span-2">Cadastrar cliente</button></form>}
- {modal==="sale"&&<form onSubmit={saveSale} className="grid gap-3 sm:grid-cols-2"><select required value={s.customerId} onChange={e=>setS({...s,customerId:e.target.value})} className="field"><option value="">Cliente avulso</option>{customers.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select><select required value={s.productId} onChange={e=>setS({...s,productId:e.target.value})} className="field"><option value="">Selecione produto</option>{products.filter(x=>x.active&&x.stock>0).map(x=><option key={x.id} value={x.id}>{x.name} · {x.stock} un.</option>)}</select><input required type="number" min="1" value={s.quantity} onChange={e=>setS({...s,quantity:e.target.value})} placeholder="Quantidade" className="field"/><input type="date" value={s.date} onChange={e=>setS({...s,date:e.target.value})} className="field"/><input type="date" value={s.dueDate} onChange={e=>setS({...s,dueDate:e.target.value})} className="field"/><input type="number" min="0" step="0.01" value={s.received} onChange={e=>setS({...s,received:e.target.value})} placeholder="Valor recebido agora" className="field"/><select value={s.method} onChange={e=>setS({...s,method:e.target.value})} className="field"><option>Dinheiro</option><option>Pix</option><option>Cartão</option><option>Transferência</option></select><textarea placeholder="Observações" value={s.notes} onChange={e=>setS({...s,notes:e.target.value})} className="field sm:col-span-2"/><button className="rounded-lg bg-sky-500 p-3 font-bold sm:col-span-2">Salvar venda</button></form>}
- {modal==="payment"&&<form onSubmit={savePayment} className="grid gap-3"><select required value={pay.saleId} onChange={e=>setPay({...pay,saleId:e.target.value})} className="field"><option value="">Selecione venda pendente</option>{sales.filter(x=>x.total>x.received).map(x=><option key={x.id} value={x.id}>{x.customerName} · saldo {money(x.total-x.received)}</option>)}</select><input required type="number" min="0.01" step="0.01" placeholder="Valor recebido" value={pay.amount} onChange={e=>setPay({...pay,amount:e.target.value})} className="field"/><input type="date" value={pay.date} onChange={e=>setPay({...pay,date:e.target.value})} className="field"/><select value={pay.method} onChange={e=>setPay({...pay,method:e.target.value})} className="field"><option>Pix</option><option>Dinheiro</option><option>Cartão</option><option>Transferência</option></select><input placeholder="Observação" value={pay.note} onChange={e=>setPay({...pay,note:e.target.value})} className="field"/><button className="rounded-lg bg-sky-500 p-3 font-bold">Confirmar recebimento</button></form>}
- </div></div>}
- <style>{`.field{width:100%;border-radius:.5rem;background:#071426;padding:.8rem;color:white;font-size:.875rem;outline:none}.field:focus{box-shadow:0 0 0 1px #38bdf8} .field::placeholder{color:#64748b} select.field option{background:#071426}`}</style>
- </main>;
+export const Route = createFileRoute("/admin")({ component: AdminPage });
+
+function AdminPage() {
+  const [authLoading, setAuthLoading] = useState(true);
+  const [userEmail, setUserEmail] = useState("");
+  const [loginMode, setLoginMode] = useState<"login" | "signup">("login");
+  const [email, setEmail] = useState(EDM_ADMIN_EMAIL);
+  const [password, setPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const [tab, setTab] = useState("Visão geral");
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [orders, setOrders] = useState<WebsiteOrder[]>([]);
+  const [balances, setBalances] = useState<Balance[]>([]);
+  const [salesCount, setSalesCount] = useState(0);
+  const [customersCount, setCustomersCount] = useState(0);
+  const [loadingData, setLoadingData] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [search, setSearch] = useState("");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [form, setForm] = useState({
+    name: "", description: "", category: "Produtos químicos", sku: "",
+    price: "", promoPrice: "", stock: "0", imageUrl: "", active: true
+  });
+
+  const notify = (message: string) => {
+    setNotice(message);
+    window.setTimeout(() => setNotice(""), 4000);
+  };
+
+  useEffect(() => {
+    let active = true;
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      const current = data.session?.user;
+      if (error || !current || current.email?.toLowerCase() !== EDM_ADMIN_EMAIL) {
+        if (current) void supabase.auth.signOut();
+        setUserEmail("");
+      } else {
+        setUserEmail(current.email);
+      }
+      setAuthLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const current = session?.user;
+      if (current?.email?.toLowerCase() === EDM_ADMIN_EMAIL) {
+        setUserEmail(current.email);
+      } else {
+        setUserEmail("");
+        if (current) void supabase.auth.signOut();
+      }
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  async function handleLogin(event: FormEvent) {
+    event.preventDefault();
+    setAuthError("");
+    setAuthMessage("");
+    if (email.trim().toLowerCase() !== EDM_ADMIN_EMAIL) {
+      setAuthError("Somente o e-mail administrativo autorizado pode acessar este painel.");
+      return;
+    }
+    setBusy(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: EDM_ADMIN_EMAIL,
+      password
+    });
+    setBusy(false);
+    if (error) setAuthError("Não foi possível entrar. Confira a senha e confirme o e-mail, caso solicitado.");
+    else setPassword("");
+  }
+
+  async function handleSignup(event: FormEvent) {
+    event.preventDefault();
+    setAuthError("");
+    setAuthMessage("");
+    if (email.trim().toLowerCase() !== EDM_ADMIN_EMAIL) {
+      setAuthError("O primeiro acesso só pode ser criado para o e-mail administrativo autorizado.");
+      return;
+    }
+    if (password.length < 8) {
+      setAuthError("Use uma senha com pelo menos 8 caracteres.");
+      return;
+    }
+    setBusy(true);
+    const { data, error } = await supabase.auth.signUp({
+      email: EDM_ADMIN_EMAIL,
+      password
+    });
+    setBusy(false);
+    if (error) {
+      setAuthError(error.message.includes("already registered")
+        ? "Esse e-mail já possui cadastro. Volte para Entrar."
+        : "Não foi possível criar o acesso: " + error.message);
+      return;
+    }
+    setPassword("");
+    if (data.session?.user.email?.toLowerCase() === EDM_ADMIN_EMAIL) {
+      setUserEmail(data.session.user.email);
+      setAuthMessage("Primeiro acesso criado e autenticado.");
+    } else {
+      setAuthMessage("Cadastro enviado. Abra o e-mail da EDM Piscinas, confirme o endereço e depois entre no painel.");
+      setLoginMode("login");
+    }
+  }
+
+  async function logout() {
+    await supabase.auth.signOut();
+    setUserEmail("");
+    setPassword("");
+  }
+
+  async function loadData() {
+    setLoadingData(true);
+    const [productResult, categoryResult, orderResult, balanceResult, salesResult, customerResult] =
+      await Promise.all([
+        supabase.from("products").select("id,name,description,category_id,sku,price,promo_price,stock,image_url,active,created_at,categories(name)").order("created_at", { ascending: false }),
+        supabase.from("categories").select("id,name,slug").order("position").order("name"),
+        supabase.from("website_orders").select("*").order("created_at", { ascending: false }).limit(100),
+        supabase.from("receivable_balances").select("*").order("due_date"),
+        supabase.from("sales").select("id", { count: "exact", head: true }),
+        supabase.from("customers").select("id", { count: "exact", head: true })
+      ]);
+    const failed = [productResult.error, categoryResult.error, orderResult.error, balanceResult.error, salesResult.error, customerResult.error].find(Boolean);
+    if (failed) notify("Erro ao carregar alguns dados: " + failed.message);
+    setProducts((productResult.data || []) as Product[]);
+    setCategories((categoryResult.data || []) as Category[]);
+    setOrders((orderResult.data || []) as WebsiteOrder[]);
+    setBalances((balanceResult.data || []) as Balance[]);
+    setSalesCount(salesResult.count || 0);
+    setCustomersCount(customerResult.count || 0);
+    setLoadingData(false);
+  }
+
+  useEffect(() => {
+    if (userEmail === EDM_ADMIN_EMAIL) void loadData();
+  }, [userEmail]);
+
+  const filteredProducts = useMemo(() => products.filter((item) =>
+    (item.name + " " + (item.sku || "") + " " + (item.categories?.name || "")).toLowerCase().includes(search.toLowerCase())
+  ), [products, search]);
+  const lowStock = products.filter((item) => item.active && item.stock <= 5);
+  const received = balances.reduce((sum, item) => sum + Number(item.amount_received || 0), 0);
+  const pending = balances.reduce((sum, item) => sum + Number(item.balance || 0), 0);
+  const revenue = balances.reduce((sum, item) => sum + Number(item.amount_due || 0), 0);
+
+  function resetForm() {
+    setForm({ name: "", description: "", category: categories[0]?.name || "Produtos químicos", sku: "", price: "", promoPrice: "", stock: "0", imageUrl: "", active: true });
+    setEditingId(null);
+    setSelectedImage(null);
+  }
+
+  function editProduct(item: Product) {
+    setForm({
+      name: item.name,
+      description: item.description || "",
+      category: item.categories?.name || "Produtos químicos",
+      sku: item.sku || "",
+      price: String(item.price),
+      promoPrice: item.promo_price == null ? "" : String(item.promo_price),
+      stock: String(item.stock),
+      imageUrl: item.image_url || "",
+      active: item.active
+    });
+    setEditingId(item.id);
+    setSelectedImage(null);
+    setModalOpen(true);
+  }
+
+  async function saveProduct(event: FormEvent) {
+    event.preventDefault();
+    const price = Number(form.price);
+    const promo = form.promoPrice.trim() ? Number(form.promoPrice) : null;
+    const stock = Number(form.stock);
+    if (!form.name.trim() || !Number.isFinite(price) || price < 0 || !Number.isInteger(stock) || stock < 0 ||
+        (promo !== null && (!Number.isFinite(promo) || promo < 0 || promo > price))) {
+      notify("Confira nome, preço, promoção e estoque.");
+      return;
+    }
+    setBusy(true);
+    let categoryId: string | null = categories.find((item) => item.name.toLowerCase() === form.category.trim().toLowerCase())?.id || null;
+    if (!categoryId && form.category.trim()) {
+      const { data, error } = await supabase.from("categories").insert({
+        name: form.category.trim(), slug: slugify(form.category.trim()), active: true
+      }).select("id,name,slug").single();
+      if (error) {
+        setBusy(false);
+        notify("Não foi possível salvar a categoria: " + error.message);
+        return;
+      }
+      categoryId = data.id;
+    }
+
+    let imageUrl = form.imageUrl || null;
+    if (selectedImage) {
+      const extension = selectedImage.name.split(".").pop()?.toLowerCase() || "jpg";
+      const path = "products/" + crypto.randomUUID() + "." + extension;
+      const { error: uploadError } = await supabase.storage.from("product-images").upload(path, selectedImage, {
+        cacheControl: "3600", upsert: false, contentType: selectedImage.type
+      });
+      if (uploadError) {
+        setBusy(false);
+        notify("Falha ao enviar a foto: " + uploadError.message);
+        return;
+      }
+      imageUrl = supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl;
+    }
+
+    const payload = {
+      name: form.name.trim(),
+      description: form.description.trim(),
+      category_id: categoryId,
+      sku: form.sku.trim() || null,
+      price,
+      promo_price: promo,
+      stock,
+      image_url: imageUrl,
+      active: form.active,
+      updated_at: new Date().toISOString()
+    };
+    const result = editingId
+      ? await supabase.from("products").update(payload).eq("id", editingId)
+      : await supabase.from("products").insert(payload);
+    setBusy(false);
+    if (result.error) {
+      notify("Não foi possível salvar o produto: " + result.error.message);
+      return;
+    }
+    setModalOpen(false);
+    resetForm();
+    await loadData();
+    notify("Produto salvo no banco de dados.");
+  }
+
+  async function deleteProduct(item: Product) {
+    if (!window.confirm("Excluir " + item.name + "?")) return;
+    const { error } = await supabase.from("products").delete().eq("id", item.id);
+    if (error) notify("Não foi possível excluir: " + error.message);
+    else {
+      await loadData();
+      notify("Produto excluído.");
+    }
+  }
+
+  async function changeStock(item: Product, delta: number) {
+    const nextStock = item.stock + delta;
+    if (nextStock < 0) return;
+    const { error } = await supabase.from("products").update({ stock: nextStock, updated_at: new Date().toISOString() }).eq("id", item.id);
+    if (error) {
+      notify("Não foi possível atualizar o estoque: " + error.message);
+      return;
+    }
+    const { error: movementError } = await supabase.from("stock_movements").insert({
+      product_id: item.id,
+      movement_type: delta > 0 ? "in" : "out",
+      quantity: Math.abs(delta),
+      previous_stock: item.stock,
+      new_stock: nextStock,
+      reason: "Ajuste manual pelo painel"
+    });
+    await loadData();
+    notify(movementError ? "Estoque atualizado; não foi possível registrar o histórico." : "Estoque atualizado e movimentação registrada.");
+  }
+
+  async function updateOrder(order: WebsiteOrder, status: string) {
+    const { error } = await supabase.from("website_orders").update({ status }).eq("id", order.id);
+    if (error) notify("Não foi possível atualizar o pedido: " + error.message);
+    else {
+      await loadData();
+      notify("Status do pedido atualizado.");
+    }
+  }
+
+  if (authLoading) {
+    return <main className="grid min-h-screen place-items-center bg-[#071426] text-white">Verificando acesso seguro...</main>;
+  }
+
+  if (userEmail !== EDM_ADMIN_EMAIL) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#071426] px-4 text-white">
+        <form onSubmit={loginMode === "login" ? handleLogin : handleSignup} className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0d2038] p-8 shadow-2xl">
+          <div className="mb-7 text-center">
+            <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-xl bg-sky-500/15 text-sky-300"><ShieldCheck size={28}/></div>
+            <p className="text-xs uppercase tracking-[.25em] text-sky-300">EDM Piscinas</p>
+            <h1 className="mt-2 text-2xl font-bold">Acesso administrativo</h1>
+            <p className="mt-2 text-sm text-slate-400">{loginMode === "login" ? "Entre com o único e-mail autorizado para acessar a gestão." : "Crie o primeiro acesso do administrador."}</p>
+          </div>
+          <label className="mb-2 block text-sm text-slate-300">E-mail autorizado</label>
+          <input type="email" required autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} className="mb-4 w-full rounded-lg bg-[#071426] p-3 text-sm text-white outline-none focus:ring-1 focus:ring-sky-400" />
+          <label className="mb-2 block text-sm text-slate-300">Senha</label>
+          <input type="password" required autoComplete={loginMode === "login" ? "current-password" : "new-password"} value={password} onChange={(event) => setPassword(event.target.value)} className="mb-4 w-full rounded-lg bg-[#071426] p-3 text-sm text-white outline-none focus:ring-1 focus:ring-sky-400" />
+          {authError && <p role="alert" className="mb-4 text-sm text-red-300">{authError}</p>}
+          {authMessage && <p role="status" className="mb-4 text-sm text-emerald-300">{authMessage}</p>}
+          <button disabled={busy} className="w-full rounded-lg bg-sky-500 p-3 font-bold text-white hover:bg-sky-400 disabled:opacity-50">{busy ? "Aguarde..." : loginMode === "login" ? "Entrar no painel" : "Criar primeiro acesso"}</button>
+          <button type="button" onClick={() => { setLoginMode(loginMode === "login" ? "signup" : "login"); setAuthError(""); setAuthMessage(""); }} className="mt-4 w-full text-sm text-sky-300 hover:text-white">{loginMode === "login" ? "Primeiro acesso? Criar conta do administrador" : "Já tem acesso? Voltar para entrar"}</button>
+          <a href="/" className="mt-5 block text-center text-sm text-slate-400 hover:text-white">← Voltar ao site</a>
+          <p className="mt-5 text-center text-xs leading-5 text-slate-500">Apenas o e-mail administrativo autorizado tem permissão para abrir o painel e consultar os dados.</p>
+        </form>
+      </main>
+    );
+  }
+
+  const navigation = [
+    ["Visão geral", ChartNoAxesCombined],
+    ["Produtos e estoque", Boxes],
+    ["Pedidos do site", ClipboardList],
+    ["Financeiro", CircleDollarSign],
+  ] as const;
+
+  return (
+    <main className="min-h-screen bg-[#071426] text-white md:flex">
+      <aside className="border-b border-white/10 bg-[#0b1b30] p-5 md:min-h-screen md:w-64 md:border-b-0 md:border-r">
+        <a href="/" className="mb-7 flex items-center gap-3">
+          <div className="rounded-lg bg-sky-500/15 p-2 text-sky-300"><ShieldCheck/></div>
+          <div><strong>EDM Piscinas</strong><small className="block text-slate-400">Painel administrativo</small></div>
+        </a>
+        <nav className="grid grid-cols-2 gap-2 md:grid-cols-1">
+          {navigation.map(([name, Icon]) => (
+            <button key={name} onClick={() => setTab(name)} className={"flex items-center gap-3 rounded-lg px-3 py-3 text-left text-sm " + (tab === name ? "bg-sky-500/15 text-sky-200" : "text-slate-400 hover:bg-white/5")}>
+              <Icon size={18}/>{name}
+            </button>
+          ))}
+        </nav>
+        <div className="mt-8 rounded-lg border border-emerald-300/20 bg-emerald-300/5 p-3 text-xs leading-5 text-emerald-200">Banco de dados conectado e sessão protegida pelo Supabase.</div>
+        <button onClick={logout} className="mt-5 flex items-center gap-2 text-sm text-slate-400 hover:text-white"><LogOut size={16}/> Sair com segurança</button>
+      </aside>
+
+      <section className="min-w-0 flex-1 p-5 md:p-9">
+        <header className="mb-7 flex flex-wrap items-center justify-between gap-4">
+          <div><p className="text-xs uppercase tracking-[.2em] text-sky-300">EDM Piscinas · administração</p><h1 className="mt-1 text-3xl font-bold">{tab}</h1></div>
+          <div className="text-right"><span className="block text-sm text-slate-300">{userEmail}</span><span className="text-xs text-emerald-300">Conectado ao Supabase</span></div>
+        </header>
+        {notice && <div role="status" className="mb-5 rounded-lg border border-sky-400/20 bg-sky-400/10 p-3 text-sm text-sky-100">{notice}</div>}
+        {loadingData && <p className="mb-4 text-sm text-slate-400">Atualizando informações do banco...</p>}
+
+        {tab === "Visão geral" && (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {[
+                { label: "Produtos cadastrados", value: String(products.length), Icon: Boxes },
+                { label: "Vendas registradas", value: String(salesCount), Icon: ShoppingBag },
+                { label: "Recebido", value: money(received), Icon: CircleDollarSign },
+                { label: "Em aberto", value: money(pending), Icon: CalendarClock }
+              ].map((item) => <article key={item.label} className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><item.Icon className="mb-4 text-sky-300"/><p className="text-sm text-slate-400">{item.label}</p><strong className="mt-1 block text-2xl">{item.value}</strong></article>)}
+            </div>
+            <div className="mt-6 grid gap-4 lg:grid-cols-2">
+              <section className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><h2 className="mb-4 font-semibold">Alertas de estoque</h2>{lowStock.map((item) => <div key={item.id} className="flex justify-between border-b border-white/5 py-3 text-sm"><span>{item.name}</span><strong className="text-amber-300">{item.stock} un.</strong></div>)}{!lowStock.length && <p className="text-sm text-slate-500">Nenhum produto com estoque baixo.</p>}</section>
+              <section className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><h2 className="mb-4 font-semibold">Pedidos recentes</h2>{orders.slice(0,5).map((order) => <div key={order.id} className="flex justify-between gap-3 border-b border-white/5 py-3 text-sm"><span>{order.customer_name}<small className="block text-slate-500">{date(order.created_at)}</small></span><strong>{money(Number(order.total))}</strong></div>)}{!orders.length && <p className="text-sm text-slate-500">Nenhum pedido recebido pelo site.</p>}</section>
+            </div>
+          </>
+        )}
+
+        {tab === "Produtos e estoque" && (
+          <>
+            <div className="mb-5 flex flex-wrap gap-3">
+              <div className="relative min-w-[200px] flex-1"><Search className="absolute left-3 top-3 text-slate-500" size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar produto, referência ou categoria" className="w-full rounded-lg border border-white/10 bg-[#0d2038] py-3 pl-10 pr-3 text-sm outline-none focus:border-sky-400"/></div>
+              <button onClick={() => { resetForm(); setModalOpen(true); }} className="flex items-center gap-2 rounded-lg bg-sky-500 px-4 py-3 text-sm font-bold"><Plus size={17}/> Novo produto</button>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#0d2038]">
+              <table className="w-full min-w-[760px] text-left text-sm">
+                <thead className="border-b border-white/10 text-xs uppercase text-slate-500"><tr>{["Produto","Categoria","Preço","Estoque","Status","Ações"].map((label) => <th className="p-4" key={label}>{label}</th>)}</tr></thead>
+                <tbody>
+                  {filteredProducts.map((item) => <tr key={item.id} className="border-b border-white/5">
+                    <td className="p-4"><div className="flex items-center gap-3">{item.image_url ? <img src={item.image_url} alt="" className="h-11 w-11 rounded object-cover"/> : <div className="grid h-11 w-11 place-items-center rounded bg-white/5"><Boxes size={18}/></div>}<span><b>{item.name}</b><small className="block text-slate-500">{item.sku || "Sem referência"}</small></span></div></td>
+                    <td className="p-4 text-slate-400">{item.categories?.name || "Sem categoria"}</td>
+                    <td className="p-4">{money(Number(item.promo_price ?? item.price))}{item.promo_price != null && <small className="ml-2 text-slate-500 line-through">{money(Number(item.price))}</small>}</td>
+                    <td className="p-4"><span className={item.stock <= 5 ? "text-amber-300" : "text-emerald-300"}>{item.stock}</span><div className="mt-1 flex gap-1"><button onClick={() => void changeStock(item,-1)} className="rounded bg-white/10 px-2" aria-label="Diminuir estoque">−</button><button onClick={() => void changeStock(item,1)} className="rounded bg-white/10 px-2" aria-label="Aumentar estoque">+</button></div></td>
+                    <td className="p-4"><button onClick={() => { void supabase.from("products").update({active:!item.active}).eq("id",item.id).then(({error}) => error ? notify(error.message) : loadData()); }} className={item.active ? "text-emerald-300" : "text-slate-500"}>{item.active ? "Ativo" : "Oculto"}</button></td>
+                    <td className="p-4"><button onClick={() => editProduct(item)} className="mr-3 text-sky-300" aria-label="Editar produto"><Pencil size={17}/></button><button onClick={() => void deleteProduct(item)} className="text-red-300" aria-label="Excluir produto"><Trash2 size={17}/></button></td>
+                  </tr>)}
+                  {!filteredProducts.length && <tr><td colSpan={6} className="p-10 text-center text-slate-500">Nenhum produto cadastrado.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        {tab === "Pedidos do site" && (
+          <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#0d2038]">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="border-b border-white/10 text-xs uppercase text-slate-500"><tr>{["Data","Cliente","WhatsApp","Itens","Total","Status"].map((label) => <th className="p-4" key={label}>{label}</th>)}</tr></thead>
+              <tbody>{orders.map((order) => <tr key={order.id} className="border-b border-white/5">
+                <td className="p-4">{date(order.created_at)}</td><td className="p-4">{order.customer_name}</td><td className="p-4">{order.whatsapp}</td>
+                <td className="p-4">{(order.items || []).map((item) => (item.quantity || 1) + "x " + (item.name || "Produto")).join(", ")}</td><td className="p-4">{money(Number(order.total))}</td>
+                <td className="p-4"><select value={order.status} onChange={(event) => void updateOrder(order,event.target.value)} className="rounded bg-[#071426] p-2"><option value="new">Novo</option><option value="contacted">Em contato</option><option value="completed">Concluído</option><option value="cancelled">Cancelado</option></select></td>
+              </tr>)}{!orders.length && <tr><td colSpan={6} className="p-10 text-center text-slate-500">Ainda não há pedidos registrados.</td></tr>}</tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === "Financeiro" && (
+          <>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Total a receber</p><strong className="mt-2 block text-2xl">{money(revenue)}</strong></article>
+              <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Já recebido</p><strong className="mt-2 block text-2xl text-emerald-300">{money(received)}</strong></article>
+              <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Saldo pendente</p><strong className="mt-2 block text-2xl text-amber-300">{money(pending)}</strong></article>
+            </div>
+            <div className="mt-6 overflow-x-auto rounded-xl border border-white/10 bg-[#0d2038]"><table className="w-full min-w-[700px] text-left text-sm"><thead className="border-b border-white/10 text-xs uppercase text-slate-500"><tr>{["Venda","Valor","Recebido","Saldo","Vencimento","Situação"].map((label) => <th key={label} className="p-4">{label}</th>)}</tr></thead><tbody>{balances.map((item) => <tr key={item.id} className="border-b border-white/5"><td className="p-4">{item.sale_id.slice(0,8).toUpperCase()}</td><td className="p-4">{money(Number(item.amount_due))}</td><td className="p-4 text-emerald-300">{money(Number(item.amount_received))}</td><td className="p-4 text-amber-300">{money(Number(item.balance))}</td><td className="p-4">{item.due_date ? date(item.due_date) : "Não informado"}</td><td className="p-4">{item.payment_status === "paid" ? "Pago" : item.payment_status === "partially_paid" ? "Parcial" : "Pendente"}</td></tr>)}{!balances.length && <tr><td colSpan={6} className="p-10 text-center text-slate-500">Nenhuma conta a receber cadastrada.</td></tr>}</tbody></table></div>
+          </>
+        )}
+      </section>
+
+      {modalOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/70 p-4">
+          <form onSubmit={saveProduct} className="my-6 w-full max-w-2xl rounded-2xl border border-white/10 bg-[#0d2038] p-6 shadow-2xl">
+            <div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-bold">{editingId ? "Editar produto" : "Novo produto"}</h2><button type="button" onClick={() => setModalOpen(false)} className="rounded bg-white/10 p-2" aria-label="Fechar">×</button></div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="text-sm text-slate-300 sm:col-span-2">Nome do produto<input required value={form.name} onChange={(event) => setForm({...form,name:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3 text-white"/></label>
+              <label className="text-sm text-slate-300">Categoria<input list="edm-categories" value={form.category} onChange={(event) => setForm({...form,category:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3 text-white"/><datalist id="edm-categories">{categories.map((item) => <option key={item.id} value={item.name}/>)}</datalist></label>
+              <label className="text-sm text-slate-300">Código / SKU<input value={form.sku} onChange={(event) => setForm({...form,sku:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3 text-white"/></label>
+              <label className="text-sm text-slate-300">Preço (R$)<input required type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm({...form,price:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3 text-white"/></label>
+              <label className="text-sm text-slate-300">Preço promocional (R$)<input type="number" min="0" step="0.01" value={form.promoPrice} onChange={(event) => setForm({...form,promoPrice:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3 text-white"/></label>
+              <label className="text-sm text-slate-300">Estoque<input required type="number" min="0" step="1" value={form.stock} onChange={(event) => setForm({...form,stock:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3 text-white"/></label>
+              <label className="text-sm text-slate-300 sm:col-span-2">Descrição<textarea rows={3} value={form.description} onChange={(event) => setForm({...form,description:event.target.value})} className="mt-2 w-full rounded-lg bg-[#071426] p-3 text-white"/></label>
+              <label className="text-sm text-slate-300 sm:col-span-2">Foto do produto<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setSelectedImage(event.target.files?.[0] || null)} className="mt-2 block w-full text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-sky-500 file:px-4 file:py-2 file:font-semibold file:text-white"/></label>
+              {(selectedImage || form.imageUrl) && <div className="sm:col-span-2">{selectedImage ? <span className="text-sm text-sky-300">Nova foto selecionada: {selectedImage.name}</span> : <img src={form.imageUrl} alt="Foto atual do produto" className="h-32 rounded-lg object-cover"/>}</div>}
+              <label className="flex items-center gap-2 text-sm text-slate-300 sm:col-span-2"><input type="checkbox" checked={form.active} onChange={(event) => setForm({...form,active:event.target.checked})}/> Exibir no catálogo público</label>
+            </div>
+            <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setModalOpen(false)} className="rounded-lg border border-white/10 px-4 py-3 text-sm">Cancelar</button><button disabled={busy} className="rounded-lg bg-sky-500 px-5 py-3 text-sm font-bold disabled:opacity-50">{busy ? "Salvando..." : "Salvar produto"}</button></div>
+          </form>
+        </div>
+      )}
+    </main>
+  );
 }
-function DataTable({headers,rows}:{headers:string[];rows:string[][]}){return <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#0d2038]"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b border-white/10 text-xs uppercase text-slate-500"><tr>{headers.map(h=><th className="p-4" key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((r,i)=><tr className="border-b border-white/5" key={i}>{r.map((v,j)=><td className="p-4" key={j}>{v}</td>)}</tr>)}{!rows.length&&<tr><td colSpan={headers.length} className="p-8 text-center text-slate-500">Nenhum registro ainda.</td></tr>}</tbody></table></div>}
