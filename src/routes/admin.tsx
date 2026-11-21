@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-  Activity, AlertTriangle, Boxes, CalendarClock, ChartNoAxesCombined,
-  CircleDollarSign, ClipboardList, ImagePlus, LogOut, PackagePlus,
+  AlertTriangle, Boxes, CalendarClock, ChartNoAxesCombined,
+  CircleDollarSign, ClipboardList, LogOut,
   Pencil, Plus, Search, ShieldCheck, ShoppingBag, Trash2, Users
 } from "lucide-react";
 import { EDM_ADMIN_EMAIL, supabase } from "@/lib/supabase";
@@ -538,7 +538,7 @@ function AdminPage() {
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               {[
                 { label: "Produtos cadastrados", value: String(products.length), Icon: Boxes },
-                { label: "Vendas registradas", value: String(salesCount), Icon: ShoppingBag },
+                { label: "Vendas registradas", value: String(sales.length), Icon: ShoppingBag },
                 { label: "Recebido", value: money(received), Icon: CircleDollarSign },
                 { label: "Em aberto", value: money(pending), Icon: CalendarClock }
               ].map((item) => <article key={item.label} className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><item.Icon className="mb-4 text-sky-300"/><p className="text-sm text-slate-400">{item.label}</p><strong className="mt-1 block text-2xl">{item.value}</strong></article>)}
@@ -586,17 +586,6 @@ function AdminPage() {
               </tr>)}{!orders.length && <tr><td colSpan={6} className="p-10 text-center text-slate-500">Ainda não há pedidos registrados.</td></tr>}</tbody>
             </table>
           </div>
-        )}
-
-        {tab === "Contas a receber" && (
-          <>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Total a receber</p><strong className="mt-2 block text-2xl">{money(revenue)}</strong></article>
-              <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Já recebido</p><strong className="mt-2 block text-2xl text-emerald-300">{money(received)}</strong></article>
-              <article className="rounded-xl border border-white/10 bg-[#0d2038] p-5"><p className="text-sm text-slate-400">Saldo pendente</p><strong className="mt-2 block text-2xl text-amber-300">{money(pending)}</strong></article>
-            </div>
-            <div className="mt-6 overflow-x-auto rounded-xl border border-white/10 bg-[#0d2038]"><table className="w-full min-w-[700px] text-left text-sm"><thead className="border-b border-white/10 text-xs uppercase text-slate-500"><tr>{["Venda","Valor","Recebido","Saldo","Vencimento","Situação"].map((label) => <th key={label} className="p-4">{label}</th>)}</tr></thead><tbody>{balances.map((item) => <tr key={item.id} className="border-b border-white/5"><td className="p-4">{item.sale_id.slice(0,8).toUpperCase()}</td><td className="p-4">{money(Number(item.amount_due))}</td><td className="p-4 text-emerald-300">{money(Number(item.amount_received))}</td><td className="p-4 text-amber-300">{money(Number(item.balance))}</td><td className="p-4">{item.due_date ? date(item.due_date) : "Não informado"}</td><td className="p-4">{item.payment_status === "paid" ? "Pago" : item.payment_status === "partially_paid" ? "Parcial" : "Pendente"}</td></tr>)}{!balances.length && <tr><td colSpan={6} className="p-10 text-center text-slate-500">Nenhuma conta a receber cadastrada.</td></tr>}</tbody></table></div>
-          </>
         )}
 
         {tab === "Vendas" && (
