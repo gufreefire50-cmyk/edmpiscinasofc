@@ -5,7 +5,7 @@ import {
   CircleDollarSign, ClipboardList, LogOut,
   Pencil, Plus, Search, ShieldCheck, ShoppingBag, Trash2, Users
 } from "lucide-react";
-import { EDM_ADMIN_EMAIL, supabase } from "@/lib/supabase";
+import { DEFAULT_ADMIN_EMAIL, isEdmAdminEmail, supabase } from "@/lib/supabase";
 
 type Category = { id: string; name: string; slug: string };
 type Product = {
@@ -54,7 +54,7 @@ function AdminPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [userEmail, setUserEmail] = useState("");
   const [loginMode, setLoginMode] = useState<"login" | "signup">("login");
-  const [email, setEmail] = useState(EDM_ADMIN_EMAIL);
+  const [email, setEmail] = useState(DEFAULT_ADMIN_EMAIL);
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [authMessage, setAuthMessage] = useState("");
@@ -94,7 +94,7 @@ function AdminPage() {
     supabase.auth.getSession().then(({ data, error }) => {
       if (!active) return;
       const current = data.session?.user;
-      if (error || !current || current.email?.toLowerCase() !== EDM_ADMIN_EMAIL) {
+      if (error || !current || !isEdmAdminEmail(current.email)) {
         if (current) void supabase.auth.signOut();
         setUserEmail("");
       } else {
@@ -104,7 +104,7 @@ function AdminPage() {
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       const current = session?.user;
-      if (current?.email?.toLowerCase() === EDM_ADMIN_EMAIL) {
+      if (isEdmAdminEmail(current?.email)) {
         setUserEmail(current.email);
       } else {
         setUserEmail("");
@@ -121,13 +121,13 @@ function AdminPage() {
     event.preventDefault();
     setAuthError("");
     setAuthMessage("");
-    if (email.trim().toLowerCase() !== EDM_ADMIN_EMAIL) {
-      setAuthError("Somente o e-mail administrativo autorizado pode acessar este painel.");
+    if (!isEdmAdminEmail(email.trim())) {
+      setAuthError("Use um dos dois e-mails autorizados para acessar este painel.");
       return;
     }
     setBusy(true);
     const { error } = await supabase.auth.signInWithPassword({
-      email: EDM_ADMIN_EMAIL,
+      email: email.trim().toLowerCase(),
       password
     });
     setBusy(false);
@@ -139,8 +139,8 @@ function AdminPage() {
     event.preventDefault();
     setAuthError("");
     setAuthMessage("");
-    if (email.trim().toLowerCase() !== EDM_ADMIN_EMAIL) {
-      setAuthError("O primeiro acesso só pode ser criado para o e-mail administrativo autorizado.");
+    if (!isEdmAdminEmail(email.trim())) {
+      setAuthError("O cadastro é permitido somente para os dois e-mails autorizados.");
       return;
     }
     if (password.length < 8) {
@@ -149,7 +149,7 @@ function AdminPage() {
     }
     setBusy(true);
     const { data, error } = await supabase.auth.signUp({
-      email: EDM_ADMIN_EMAIL,
+      email: email.trim().toLowerCase(),
       password
     });
     setBusy(false);
@@ -160,7 +160,7 @@ function AdminPage() {
       return;
     }
     setPassword("");
-    if (data.session?.user.email?.toLowerCase() === EDM_ADMIN_EMAIL) {
+    if (isEdmAdminEmail(data.session?.user.email)) {
       setUserEmail(data.session.user.email);
       setAuthMessage("Primeiro acesso criado e autenticado.");
     } else {
@@ -198,7 +198,7 @@ function AdminPage() {
   }
 
   useEffect(() => {
-    if (userEmail === EDM_ADMIN_EMAIL) void loadData();
+    if (isEdmAdminEmail(userEmail)) void loadData();
   }, [userEmail]);
 
   const filteredProducts = useMemo(() => products.filter((item) =>
@@ -479,7 +479,7 @@ function AdminPage() {
     return <main className="grid min-h-screen place-items-center bg-[#071426] text-white">Verificando acesso seguro...</main>;
   }
 
-  if (userEmail !== EDM_ADMIN_EMAIL) {
+  if (!isEdmAdminEmail(userEmail)) {
     return (
       <main className="grid min-h-screen place-items-center bg-[#071426] px-4 text-white">
         <form onSubmit={loginMode === "login" ? handleLogin : handleSignup} className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0d2038] p-8 shadow-2xl">
@@ -487,7 +487,7 @@ function AdminPage() {
             <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-xl bg-sky-500/15 text-sky-300"><ShieldCheck size={28}/></div>
             <p className="text-xs uppercase tracking-[.25em] text-sky-300">EDM Piscinas</p>
             <h1 className="mt-2 text-2xl font-bold">Acesso administrativo</h1>
-            <p className="mt-2 text-sm text-slate-400">{loginMode === "login" ? "Entre com o único e-mail autorizado para acessar a gestão." : "Crie o primeiro acesso do administrador."}</p>
+            <p className="mt-2 text-sm text-slate-400">{loginMode === "login" ? "Entre com um dos dois e-mails autorizados para acessar a gestão." : "Crie o primeiro acesso do administrador."}</p>
           </div>
           <label className="mb-2 block text-sm text-slate-300">E-mail autorizado</label>
           <input type="email" required autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} className="mb-4 w-full rounded-lg bg-[#071426] p-3 text-sm text-white outline-none focus:ring-1 focus:ring-sky-400" />
@@ -498,7 +498,7 @@ function AdminPage() {
           <button disabled={busy} className="w-full rounded-lg bg-sky-500 p-3 font-bold text-white hover:bg-sky-400 disabled:opacity-50">{busy ? "Aguarde..." : loginMode === "login" ? "Entrar no painel" : "Criar primeiro acesso"}</button>
           <button type="button" onClick={() => { setLoginMode(loginMode === "login" ? "signup" : "login"); setAuthError(""); setAuthMessage(""); }} className="mt-4 w-full text-sm text-sky-300 hover:text-white">{loginMode === "login" ? "Primeiro acesso? Criar conta do administrador" : "Já tem acesso? Voltar para entrar"}</button>
           <a href="/" className="mt-5 block text-center text-sm text-slate-400 hover:text-white">← Voltar ao site</a>
-          <p className="mt-5 text-center text-xs leading-5 text-slate-500">Apenas o e-mail administrativo autorizado tem permissão para abrir o painel e consultar os dados.</p>
+          <p className="mt-5 text-center text-xs leading-5 text-slate-500">Apenas os dois e-mails autorizados podem abrir o painel e consultar os dados.</p>
         </form>
       </main>
     );
