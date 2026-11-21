@@ -31,6 +31,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { business, quoteUrl, whatsappUrl, mapsUrl } from "@/lib/edm";
+import { supabase } from "@/lib/supabase";
 import hero from "@/assets/piscina-noturna.asset.json";
 import professional from "@/assets/profissional.asset.json";
 import logo from "@/assets/logo-edm-completa.asset.json";
@@ -137,7 +138,6 @@ const services = [
     icon: Sparkles,
   },
 ];
-const PRODUCT_STORAGE_KEY = "edm-piscinas-local-v1";
 type StoreProduct = { id:string; name:string; description:string; category:string; price:number; promoPrice:number|null; stock:number; active:boolean; image:string };
 const gallery = [
   {
@@ -203,17 +203,32 @@ function Index() {
   const [sent, setSent] = useState(false);
   const [storeProducts, setStoreProducts] = useState<StoreProduct[]>([]);
   useEffect(() => {
-    const readStoreProducts = () => {
-      try {
-        const saved = JSON.parse(localStorage.getItem(PRODUCT_STORAGE_KEY) || "{}");
-        setStoreProducts((saved.products || []).filter((p:StoreProduct) => p.active !== false));
-      } catch { setStoreProducts([]); }
-    };
-    readStoreProducts();
-    const onStorage = (event:StorageEvent) => { if (event.key === PRODUCT_STORAGE_KEY) readStoreProducts(); };
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("edm-products-updated", readStoreProducts);
-    return () => { window.removeEventListener("storage", onStorage); window.removeEventListener("edm-products-updated", readStoreProducts); };
+    let active = true;
+    async function readStoreProducts() {
+      const { data, error } = await supabase.from("products")
+        .select("id,name,description,price,promo_price,stock,active,image_url,categories(name)")
+        .eq("active", true)
+        .order("created_at", { ascending: false });
+      if (!active) return;
+      if (error) {
+        console.error("Falha ao carregar produtos da EDM:", error.message);
+        setStoreProducts([]);
+        return;
+      }
+      setStoreProducts((data || []).map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        description: item.description || "",
+        category: item.categories?.name || "Geral",
+        price: Number(item.price),
+        promoPrice: item.promo_price == null ? null : Number(item.promo_price),
+        stock: Number(item.stock),
+        active: item.active,
+        image: item.image_url || ""
+      })));
+    }
+    void readStoreProducts();
+    return () => { active = false; };
   }, []);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 65);
