@@ -20,6 +20,7 @@ function CatalogPage() {
   const [notes,setNotes] = useState("");
   const [loading,setLoading] = useState(true);
   const [error,setError] = useState("");
+  const [sending,setSending] = useState(false);
   useEffect(()=>{
     let active=true;
     async function loadProducts(){
@@ -45,18 +46,28 @@ function CatalogPage() {
   const total=cart.reduce((sum,item)=>sum+(item.product.promo_price||item.product.price)*item.quantity,0);
   function add(product:Product){setCart(current=>{const found=current.find(i=>i.product.id===product.id);if(found)return current.map(i=>i.product.id===product.id?{...i,quantity:Math.min(product.stock,i.quantity+1)}:i);return [...current,{product,quantity:1}];});}
   function change(id:string,delta:number){setCart(current=>current.map(i=>i.product.id===id?{...i,quantity:Math.max(0,Math.min(i.product.stock,i.quantity+delta))}:i).filter(i=>i.quantity>0));}
-  function sendOrder(){
-    if(!name.trim()||customerPhone.replace(/\D/g,"").length<10||!cart.length)return;
-    const lines=cart.map(i=>`• ${i.quantity}x ${i.product.name} - ${brl((i.product.promo_price||i.product.price)*i.quantity)}`).join("\n");
-    const message=`Olá! Quero fazer um pedido para RETIRADA NA LOJA EDM Piscinas.\n\nNome: ${name}\nWhatsApp: ${customerPhone}\n\n${lines}\n\nTotal: ${brl(total)}\nObservações: ${notes||"Nenhuma"}\n\nConfirmar disponibilidade e retirada, por favor.`;
-    void supabase.from("website_orders").insert({
-      customer_name:name.trim(),
-      whatsapp:customerPhone.trim(),
-      items:cart.map(i=>({product_id:i.product.id,name:i.product.name,quantity:i.quantity,price:(i.product.promo_price||i.product.price)})),
-      total,
-      notes:notes.trim() + (notes.trim() ? " | " : "") + "Pedido para retirada na loja."
-    }).then(({error})=>{if(error)console.error("Falha ao registrar pedido no banco:",error.message);});
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank","noopener,noreferrer");
+  async function sendOrder(){
+    if(sending||!name.trim()||customerPhone.replace(/\\D/g,"").length<10||!cart.length)return;
+    setSending(true);
+    const lines=cart.map(i=>`• ${i.quantity}x ${i.product.name} - ${brl((i.product.promo_price||i.product.price)*i.quantity)}`).join("\\n");
+    const message=`Olá! Quero fazer um pedido para RETIRADA NA LOJA EDM Piscinas.\\n\\nNome: ${name.trim()}\\nWhatsApp: ${customerPhone.trim()}\\n\\n${lines}\\n\\nTotal: ${brl(total)}\\nObservações: ${notes.trim()||"Nenhuma"}\\n\\nConfirmar disponibilidade e retirada, por favor.`;
+    const whatsappLink=`https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    try {
+      await Promise.race([
+        supabase.from("website_orders").insert({
+          customer_name:name.trim(),
+          whatsapp:customerPhone.trim(),
+          items:cart.map(i=>({product_id:i.product.id,name:i.product.name,quantity:i.quantity,price:(i.product.promo_price||i.product.price)})),
+          total,
+          notes:notes.trim() + (notes.trim() ? " | " : "") + "Pedido para retirada na loja."
+        }),
+        new Promise(resolve=>window.setTimeout(resolve,1500))
+      ]);
+    } catch (err) {
+      console.error("Falha ao registrar pedido; abrindo WhatsApp mesmo assim:",err);
+    }
+    // Abre na mesma aba para não ser bloqueado pelo Chrome.
+    window.location.assign(whatsappLink);
   }
   return <main className="min-h-screen bg-[#071426] text-white"><header className="border-b border-white/10 bg-[#0b1b30]"><div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-5"><a href="/" className="flex items-center gap-2 text-sm text-slate-300 hover:text-white"><ArrowLeft size={18}/> Voltar ao site</a><strong className="tracking-wide">EDM <span className="text-sky-300">PISCINAS</span></strong><a href="/admin" className="text-xs text-slate-500 hover:text-white">Área administrativa</a></div></header>
     <div className="mx-auto max-w-7xl px-5 py-10"><div className="mb-8"><p className="text-xs uppercase tracking-[.25em] text-sky-300">Loja EDM Piscinas</p><h1 className="mt-2 text-4xl font-bold">Catálogo de produtos</h1><p className="mt-3 text-slate-400">Escolha seus produtos e envie o pedido pelo WhatsApp. Pagamento e retirada são combinados diretamente com a loja.</p><div className="mt-4 inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-xs text-sky-200"><Store size={15}/> Retirada somente na loja física · Sem entrega</div></div>
