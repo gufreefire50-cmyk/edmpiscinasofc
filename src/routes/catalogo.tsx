@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Minus, Plus, Search, ShoppingBag, Store, Trash2 } from "lucide-react";
 
-type Product = { id:string; name:string; description:string; category:string; price:number; promoPrice:number|null; stock:number; sku:string; active:boolean; image:string };
+type Product = { id:string; name:string; description:string; category:string; price:number; promoPrice:number|null; promo_price:number|null; stock:number; sku:string; active:boolean; image:string; image_url:string|null };
 const STORAGE_KEY="edm-piscinas-local-v1";
 type CartItem = { product: Product; quantity: number };
 const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || "").replace(/\/$/, "");
